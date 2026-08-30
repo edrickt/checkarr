@@ -55,7 +55,7 @@ async function runDecodeStep(
   bin: string,
   file: string,
   name: string,
-  opts: { seconds?: number; seekS?: number },
+  opts: { seconds?: number; seekS?: number; threads?: number },
   timeoutMs: number
 ): Promise<Step> {
   const r = await runBin(bin, decodeArgs(file, opts), timeoutMs);
