@@ -54,7 +54,9 @@ export function runBin(bin: string, args: string[], timeoutMs: number): Promise<
     let timedOut = false;
     let child: ReturnType<typeof spawn>;
     try {
-      child = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"] });
+      // windowsHide keeps ffprobe/ffmpeg from flashing a console window per
+      // check on Windows (maps to CREATE_NO_WINDOW); ignored on POSIX.
+      child = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
     } catch (err) {
       resolve({ code: -1, stdout: "", stderr: "", timedOut: false, error: String((err as Error)?.message ?? err) });
       return;
