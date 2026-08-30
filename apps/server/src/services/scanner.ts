@@ -1,4 +1,3 @@
-import os from "node:os";
 import type { DB } from "../db.js";
 import { getSettings, type PathMapping } from "../settings.js";
 import { binariesUsable, resolveBinaries, type Binaries } from "./ffmpeg.js";
@@ -101,11 +100,10 @@ export class ScanManager {
   ): Promise<void> {
     try {
       const n = Math.min(32, Math.max(1, concurrency));
-      // Spread the box's logical cores across workers so ffmpeg never takes
-      // the whole machine: e.g. 8 workers on 8 cores = 1 decode thread each,
-      // 2 workers on 8 cores = 4 threads each. Decode threads also drive
-      // memory (frame buffers), so this caps RAM per process too.
-      const threads = Math.max(1, Math.min(8, Math.floor(os.cpus().length / n)));
+      // Exactly one decode thread per worker, so total ffmpeg threads always
+      // equal the worker count no matter the hardware. The machine keeps its
+      // headroom; raise concurrency if you want more decode throughput.
+      const threads = 1;
       const ctx: CheckContext = { binaries, mappings, mode, threads };
       const workers: Promise<void>[] = [];
       for (let i = 0; i < n; i++) workers.push(this.worker(runId, ctx));
