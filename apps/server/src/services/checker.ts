@@ -11,6 +11,8 @@ export interface CheckContext {
   binaries: Binaries;
   mappings: PathMapping[];
   mode: ScanMode;
+  /** Decoder thread budget per ffmpeg process; keeps N workers inside the box's cores. */
+  threads?: number;
 }
 
 export interface CheckOutcome {
@@ -37,8 +39,12 @@ interface Step {
  * decode every video/audio stream into the null muxer.
  * seekS performs an input seek first (like a player scrub); seconds limits how much is decoded.
  */
-function decodeArgs(file: string, opts: { seconds?: number; seekS?: number }): string[] {
+function decodeArgs(file: string, opts: { seconds?: number; seekS?: number; threads?: number }): string[] {
   const args = ["-nostdin", "-hide_banner", "-v", "error"];
+  // ffmpeg decodes as fast as it can with up to ~16 threads per process by
+  // default, which oversubscribes the CPU and starves everything else.
+  // Budgeting threads per worker keeps the machine responsive.
+  if (opts.threads !== undefined && opts.threads > 0) args.push("-threads", String(opts.threads));
   if (opts.seekS !== undefined) args.push("-ss", String(opts.seekS));
   if (opts.seconds !== undefined) args.push("-t", String(opts.seconds));
   args.push("-i", file, "-map", "0:v?", "-map", "0:a?", "-f", "null", "-");
@@ -102,14 +108,14 @@ export async function checkMediaFile(originalPath: string, ctx: CheckContext): P
   // 3. Decode checks
   const steps: Step[] = [];
   if (ctx.mode === "deep") {
-    steps.push(await runDecodeStep(ctx.binaries.ffmpeg, localPath, "full decode", {}, TIMEOUTS.deepMs));
+    steps.push(await runDecodeStep(ctx.binaries.ffmpeg, localPath, "full decode", { threads: ctx.threads }, TIMEOUTS.deepMs));
   } else {
-    const start = await runDecodeStep(ctx.binaries.ffmpeg, localPath, "start (first 10s)", { seconds: 10 }, TIMEOUTS.segmentMs);
+    const start = await runDecodeStep(ctx.binaries.ffmpeg, localPath, "start (first 10s)", { seconds: 10, threads: ctx.threads }, TIMEOUTS.segmentMs);
     steps.push(start);
     const dur = info.durationS;
     if (start.verdict !== "fail" && dur !== null && dur > 0) {
       const mid = Math.max(0, Math.floor(dur / 2));
-      steps.push(await runDecodeStep(ctx.binaries.ffmpeg, localPath, "middle (from " + mid + "s, 10s)", { seconds: 10, seekS: mid }, TIMEOUTS.segmentMs));
+      steps.push(await runDecodeStep(ctx.binaries.ffmpeg, localPath, "middle (from " + mid + "s, 10s)", { seconds: 10, seekS: mid, threads: ctx.threads }, TIMEOUTS.segmentMs));
     } else if (start.verdict !== "fail" && (dur === null || dur <= 0)) {
       steps.push({ name: "middle", verdict: "suspect", detail: "middle check skipped: duration unknown" });
     }
