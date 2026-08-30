@@ -108,6 +108,8 @@ if (!fs.existsSync(entry)) {
   process.exit(1);
 }
 
+// fresh clone has no data/ yet (gitignored) - create it before writing the log
+fs.mkdirSync(path.dirname(logFile), { recursive: true });
 const out = fs.openSync(logFile, "w");
 const child = spawn(process.execPath, [entry], {
   cwd: root,
