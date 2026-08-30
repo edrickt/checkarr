@@ -2,6 +2,7 @@ import type {
   FileListResponse,
   FileQuery,
   FileStatus,
+  PurgeResponse,
   ScanRun,
   Settings,
   SettingsResponse,
@@ -54,6 +55,7 @@ export const api = {
   deleteSource: (id: number) => send<{ ok: boolean }>("DELETE", "/api/sources/" + id),
   testSource: (id: number) => send<TestResult>("POST", "/api/sources/" + id + "/test"),
   sync: (sourceId?: number) => send<SyncResponse>("POST", "/api/sync", sourceId !== undefined ? { sourceId } : {}),
+  purgeCorrupt: () => send<PurgeResponse>("POST", "/api/purge/corrupt", {}),
   startScan: (mode: "quick" | "deep", scope: "unchecked" | "all") =>
     send<{ runId: number }>("POST", "/api/scan", { mode, scope }),
   cancelScan: () => send<{ ok: boolean }>("POST", "/api/scan/cancel"),

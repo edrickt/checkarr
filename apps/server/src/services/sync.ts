@@ -24,12 +24,23 @@ function trimSlashes(s: string): string {
   return out;
 }
 
-export async function fetchArr(baseUrl: string, apiKey: string, apiPath: string): Promise<unknown> {
+export async function fetchArr(
+  baseUrl: string,
+  apiKey: string,
+  apiPath: string,
+  init?: { method?: string; body?: unknown }
+): Promise<unknown> {
   const root = trimSlashes(baseUrl);
   let res: Response;
   try {
     res = await fetch(root + apiPath, {
-      headers: { "X-Api-Key": apiKey, Accept: "application/json" },
+      method: init?.method ?? "GET",
+      headers: {
+        "X-Api-Key": apiKey,
+        Accept: "application/json",
+        ...(init?.body !== undefined ? { "Content-Type": "application/json" } : {})
+      },
+      body: init?.body !== undefined ? JSON.stringify(init.body) : undefined,
       signal: AbortSignal.timeout(20_000)
     });
   } catch (err) {

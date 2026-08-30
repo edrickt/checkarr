@@ -5,6 +5,7 @@ import { binariesUsable, resolveBinaries } from "./services/ffmpeg.js";
 import { checkMediaFile, resolveLocalPath, type ScanMode } from "./services/checker.js";
 import { persistOutcome, ScanManager } from "./services/scanner.js";
 import { syncSource, testSource, type SourceCore } from "./services/sync.js";
+import { purgeCorrupt } from "./services/purge.js";
 import { ApiError } from "./lib/api-error.js";
 import type { DB } from "./db.js";
 
@@ -218,6 +219,12 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
       }
     }
     return { results };
+  });
+
+  // ---- purge ----
+  app.post("/api/purge/corrupt", async () => {
+    if (scans.isActive()) throw new ApiError(409, "A scan is running - wait for it to finish or cancel it");
+    return purgeCorrupt(db);
   });
 
   // ---- scan ----

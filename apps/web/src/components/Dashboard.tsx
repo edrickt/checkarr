@@ -52,6 +52,24 @@ export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: strin
 
   const cancelScan = useMutation({ mutationFn: api.cancelScan, onSuccess: invalidateAll });
 
+  const purge = useMutation({
+    mutationFn: api.purgeCorrupt,
+    onSuccess: (data) => {
+      const parts = data.results.map((r) =>
+        r.name + ": " + r.deleted + " deleted, " + r.searched + " searches queued" +
+        (r.skipped ? ", " + r.skipped + " already gone" : "") +
+        (r.errors.length ? ", " + r.errors.length + " failed" : "")
+      );
+      notify(
+        "Deleted " + data.total + " corrupt file(s) and queued searches for replacements. " +
+        (parts.join(" | ") || "nothing to do") +
+        " Re-sync and re-scan later to check the new downloads."
+      );
+      invalidateAll();
+    },
+    onError: (err: Error) => notify("Purge failed: " + err.message)
+  });
+
   const active = scan.data?.active ?? false;
   const run = scan.data?.run ?? null;
   const byStatus = stats.data?.byStatus ?? {};
@@ -107,6 +125,25 @@ export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: strin
         >
           Re-scan everything
         </button>
+        {(byStatus.corrupt ?? 0) > 0 && (
+          <button
+            onClick={() => {
+              const n = byStatus.corrupt ?? 0;
+              if (
+                window.confirm(
+                  "Delete " + n + " corrupt file(s) from Radarr/Sonarr and search for replacements?\n\nThe files are removed from disk. This cannot be undone."
+                )
+              ) {
+                purge.mutate();
+              }
+            }}
+            disabled={purge.isPending || active}
+            className={BTN + " hover:border-red-600 hover:text-red-600"}
+            title="Deletes the corrupt files at the *arr source and queues searches for replacements"
+          >
+            {purge.isPending ? "Purging..." : "Delete & re-search corrupt (" + (byStatus.corrupt ?? 0) + ")"}
+          </button>
+        )}
         {active && (
           <button
             onClick={() => cancelScan.mutate()}
