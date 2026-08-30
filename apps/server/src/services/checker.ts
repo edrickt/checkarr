@@ -39,8 +39,15 @@ interface Step {
  * decode every video/audio stream into the null muxer.
  * seekS performs an input seek first (like a player scrub); seconds limits how much is decoded.
  */
+// Guards against corrupted files that declare insane dimensions or make
+  // ffmpeg allocate absurd buffers before decoding anything. Real media
+  // (up to 8K, ~33.5M pixels) sails under both limits; damaged files fail
+  // fast with an allocation error instead of eating gigabytes of RAM.
+const MAX_PIXELS = String(33_554_432);
+const MAX_ALLOC = String(1024 * 1024 * 1024);
+
 function decodeArgs(file: string, opts: { seconds?: number; seekS?: number; threads?: number }): string[] {
-  const args = ["-nostdin", "-hide_banner", "-v", "error"];
+  const args = ["-nostdin", "-hide_banner", "-v", "error", "-max_pixels", MAX_PIXELS, "-max_alloc", MAX_ALLOC];
   // ffmpeg decodes as fast as it can with up to ~16 threads per process by
   // default, which oversubscribes the CPU and starves everything else.
   // Budgeting threads per worker keeps the machine responsive.
