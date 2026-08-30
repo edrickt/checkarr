@@ -10,8 +10,8 @@
     "dev:server": "pnpm -F @checkarr/server dev",
     "dev:web": "pnpm -F @checkarr/web dev",
     "build": "pnpm -F @checkarr/server build && pnpm -F @checkarr/web build",
-    "start": "bash scripts/start.sh",
-    "stop": "bash scripts/stop.sh",
+    "start": "node scripts/start.mjs",
+    "stop": "node scripts/stop.mjs",
     "test": "pnpm -F @checkarr/server test",
     "gen:samples": "node scripts/dev/gen-sample-media.mjs",
     "stub:arr": "node scripts/dev/stub-arr.mjs"

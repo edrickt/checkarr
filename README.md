@@ -57,6 +57,7 @@ Or run it in the background:
     pnpm start             # builds, kills any running instance, starts fresh, waits until healthy
     pnpm stop              # stops it again
 
+Both scripts are plain Node, so they work on macOS, Linux, and Windows (no WSL needed).
 The background server logs to data/server.log and writes its pid to data/checkarr.pid.
 CHECKARR_PORT/PORT are honored by both scripts. Foreground die-hards: pnpm -F @checkarr/server start.
 
