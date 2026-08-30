@@ -1,0 +1,17 @@
+services:
+  checkarr:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "6767:6767"
+    volumes:
+      - checkarr-data:/data
+      # Mount your media and *arr libraries so files are readable inside the container,
+      # then add matching path mappings in Checkarr settings.
+      # - /path/to/movies:/data/movies:ro
+      # - /path/to/tv:/data/tv:ro
+    restart: unless-stopped
+
+volumes:
+  checkarr-data:

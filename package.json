@@ -1,0 +1,22 @@
+{
+  "name": "checkarr",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Media integrity checker for Radarr/Sonarr libraries",
+  "engines": {
+    "node": ">=23.4"
+  },
+  "scripts": {
+    "dev:server": "pnpm -F @checkarr/server dev",
+    "dev:web": "pnpm -F @checkarr/web dev",
+    "build": "pnpm -F @checkarr/server build && pnpm -F @checkarr/web build",
+    "start": "bash scripts/start.sh",
+    "stop": "bash scripts/stop.sh",
+    "test": "pnpm -F @checkarr/server test",
+    "gen:samples": "node scripts/dev/gen-sample-media.mjs",
+    "stub:arr": "node scripts/dev/stub-arr.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}

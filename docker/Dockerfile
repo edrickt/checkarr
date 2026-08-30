@@ -1,0 +1,27 @@
+FROM node:24-bookworm-slim AS build
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ffmpeg \
+ && rm -rf /var/lib/apt/lists/* \
+ && npm install -g pnpm@11
+WORKDIR /app
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+COPY apps/server/package.json apps/server/
+COPY apps/web/package.json apps/web/
+RUN pnpm install --frozen-lockfile
+COPY tsconfig.base.json ./
+COPY apps/server apps/server
+COPY apps/web apps/web
+# skip bundled ffmpeg download inside the image; system ffmpeg is installed above
+RUN pnpm build
+
+FROM node:24-bookworm-slim
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ffmpeg \
+ && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+ENV NODE_ENV=production
+ENV CHECKARR_DATA_DIR=/data
+COPY --from=build /app ./
+VOLUME /data
+EXPOSE 6767
+CMD ["node", "apps/server/dist/index.js"]

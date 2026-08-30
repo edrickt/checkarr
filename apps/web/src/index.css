@@ -1,0 +1,8 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    @apply bg-white text-neutral-900 antialiased;
+    font-variant-numeric: tabular-nums;
+  }
+}

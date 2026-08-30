@@ -1,0 +1,161 @@
+import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { api } from "../api";
+import { formatWhen } from "../utils";
+
+const CARDS: { status: string; label: string; text: string }[] = [
+  { status: "healthy", label: "Healthy", text: "text-emerald-600" },
+  { status: "corrupt", label: "Corrupt", text: "text-red-600" },
+  { status: "suspect", label: "Suspect", text: "text-amber-600" },
+  { status: "missing", label: "Missing", text: "text-sky-600" },
+  { status: "unreachable", label: "Unreachable", text: "text-violet-600" },
+  { status: "unchecked", label: "Unchecked", text: "text-neutral-400" }
+];
+
+const BTN = "border border-neutral-300 bg-white px-3 py-1.5 text-sm text-neutral-700 hover:border-neutral-900 hover:text-neutral-900 disabled:opacity-40";
+const BTN_PRIMARY = "bg-neutral-900 px-3 py-1.5 text-sm text-white hover:bg-neutral-700 disabled:opacity-40";
+
+export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: string | null) => void }) {
+  const queryClient = useQueryClient();
+  const [message, setMessage] = useState<string | null>(null);
+
+  const stats = useQuery({ queryKey: ["stats"], queryFn: api.stats, refetchInterval: (q) => (q.state.data?.activeScan ? 1500 : 5000) });
+  const scan = useQuery({ queryKey: ["scan"], queryFn: api.currentScan, refetchInterval: (q) => (q.state.data?.active ? 1500 : 5000) });
+  const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
+
+  const notify = (msg: string) => {
+    setMessage(msg);
+    setTimeout(() => setMessage(null), 6000);
+  };
+
+  const invalidateAll = () => {
+    queryClient.invalidateQueries({ queryKey: ["stats"] });
+    queryClient.invalidateQueries({ queryKey: ["scan"] });
+    queryClient.invalidateQueries({ queryKey: ["files"] });
+  };
+
+  const sync = useMutation({
+    mutationFn: () => api.sync(),
+    onSuccess: (data) => {
+      const parts = data.results.map((r) => (r.ok ? r.name + ": +" + (r.added ?? 0) + " new, " + (r.updated ?? 0) + " updated, -" + (r.removed ?? 0) + " removed" : r.name + ": FAILED - " + r.error));
+      notify(parts.join(" | ") || "nothing to sync");
+      invalidateAll();
+    },
+    onError: (err: Error) => notify("Sync failed: " + err.message)
+  });
+
+  const startScan = useMutation({
+    mutationFn: (v: { mode: "quick" | "deep"; scope: "unchecked" | "all" }) => api.startScan(v.mode, v.scope),
+    onSuccess: invalidateAll,
+    onError: (err: Error) => notify("Scan failed to start: " + err.message)
+  });
+
+  const cancelScan = useMutation({ mutationFn: api.cancelScan, onSuccess: invalidateAll });
+
+  const active = scan.data?.active ?? false;
+  const run = scan.data?.run ?? null;
+  const byStatus = stats.data?.byStatus ?? {};
+  const lastScan = stats.data?.lastScan ?? null;
+
+  return (
+    <div className="space-y-6">
+      {!settings.isLoading && settings.data && !settings.data.ffmpegAvailable && (
+        <div className="border border-red-300 px-4 py-3 text-sm text-red-700">
+          ffmpeg is not available: {settings.data.ffmpegError} - scans will not run. Configure a path in Settings.
+        </div>
+      )}
+
+      <div className="grid grid-cols-3 border-y border-neutral-200 sm:grid-cols-6">
+        {CARDS.map((c) => (
+          <button
+            key={c.status}
+            onClick={() => onGoLibrary(c.status)}
+            className="px-3 py-4 text-left hover:bg-neutral-50"
+          >
+            <div className={"text-2xl " + c.text}>{byStatus[c.status] ?? 0}</div>
+            <div className="mt-1 text-xs text-neutral-500">{c.label}</div>
+          </button>
+        ))}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <button onClick={() => sync.mutate()} disabled={sync.isPending || active} className={BTN}>
+          {sync.isPending ? "Syncing..." : "Sync libraries"}
+        </button>
+        <button
+          onClick={() => startScan.mutate({ mode: "quick", scope: "unchecked" })}
+          disabled={active}
+          className={BTN_PRIMARY}
+        >
+          Quick scan unchecked
+        </button>
+        <button
+          onClick={() => startScan.mutate({ mode: "deep", scope: "unchecked" })}
+          disabled={active}
+          className={BTN}
+        >
+          Deep scan unchecked
+        </button>
+        <button
+          onClick={() => {
+            if (window.confirm("Re-check every file, including healthy ones? This takes much longer.")) {
+              startScan.mutate({ mode: "quick", scope: "all" });
+            }
+          }}
+          disabled={active}
+          className={BTN}
+        >
+          Re-scan everything
+        </button>
+        {active && (
+          <button
+            onClick={() => cancelScan.mutate()}
+            className="border border-neutral-300 bg-white px-3 py-1.5 text-sm text-neutral-700 hover:border-red-600 hover:text-red-600"
+          >
+            Cancel scan
+          </button>
+        )}
+      </div>
+
+      {message && <div className="border border-neutral-200 px-4 py-3 text-sm text-neutral-600">{message}</div>}
+
+      {run && (
+        <div>
+          <div className="flex items-baseline justify-between">
+            <span className="text-sm font-medium">Scan run #{run.id}</span>
+            <span className={"text-xs " + (run.state === "running" ? "text-emerald-600" : run.state === "done" ? "text-neutral-500" : "text-amber-600")}>
+              {run.state}
+            </span>
+          </div>
+          <dl className="mt-2 grid grid-cols-2 gap-x-6 gap-y-1 text-xs sm:grid-cols-3">
+            {[
+              ["mode", run.mode],
+              ["scope", run.scope],
+              ["progress", run.done + " / " + run.total],
+              ["issues", String(run.issues)],
+              ["started", formatWhen(run.startedAt)],
+              ["finished", formatWhen(run.finishedAt)]
+            ].map(([k, v]) => (
+              <div key={k as string} className="flex gap-2">
+                <dt className="text-neutral-400">{k}:</dt>
+                <dd className="text-neutral-700">{v}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      )}
+      {!run && lastScan && (
+        <div className="text-xs text-neutral-400">last scan: {formatWhen(lastScan.finishedAt ?? lastScan.startedAt)}</div>
+      )}
+
+      <div className="border-t border-neutral-200 pt-4 text-sm text-neutral-500">
+        <p className="font-medium text-neutral-700">How checks work</p>
+        <p className="mt-1">
+          Every file is probed with ffprobe, then decoded with ffmpeg: the first 10 seconds, and 10 seconds from the
+          middle (50% of duration). Deep scans decode the entire file. Files that fail to decode are marked corrupt;
+          files with recoverable errors or no known duration are marked suspect.
+        </p>
+      </div>
+    </div>
+  );
+}
