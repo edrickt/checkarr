@@ -33,10 +33,10 @@ Requires Node 23.4+ (node:sqlite) and pnpm 11. ffmpeg and ffprobe come from
 ffmpeg-static / ffprobe-static, so they download during pnpm install.
 
     pnpm install
-    pnpm dev:server        # API + UI on http://127.0.0.1:6767
+    pnpm dev:server        # API + UI on http://127.0.0.1:5656
     pnpm dev:web           # optional: Vite dev server with HMR on http://localhost:5173
 
-Open http://127.0.0.1:6767, go to Settings, add your Radarr/Sonarr instance (URL + API key),
+Open http://127.0.0.1:5656, go to Settings, add your Radarr/Sonarr instance (URL + API key),
 test it, then hit "Sync libraries" on the Dashboard and start a scan.
 
 ### Try it without a real *arr instance
@@ -50,7 +50,7 @@ you should get 2 healthy, 1 corrupt (truncated), 1 suspect (middle damage), 1 mi
 ## Production build
 
     pnpm build
-    pnpm start             # serves the API and the built UI on http://127.0.0.1:6767
+    pnpm start             # serves the API and the built UI on http://127.0.0.1:5656
 
 Or run it in the background:
 
@@ -78,7 +78,7 @@ Settings live in SQLite (data/checkarr.db, override the directory with CHECKARR_
 - **Concurrent checks** - 1-32 parallel ffmpeg workers (default 8)
 - **ffmpeg/ffprobe path overrides** - use system binaries instead of the bundled ones
 
-Environment: CHECKARR_PORT (default 6767), HOST (default 127.0.0.1), CHECKARR_DATA_DIR,
+Environment: CHECKARR_PORT (default 5656; 6767 belongs to Bazarr), HOST (default 127.0.0.1), CHECKARR_DATA_DIR,
 CHECKARR_WEB_DIST, LOG_LEVEL.
 
 ## API

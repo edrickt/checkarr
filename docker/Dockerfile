@@ -23,5 +23,5 @@ ENV NODE_ENV=production
 ENV CHECKARR_DATA_DIR=/data
 COPY --from=build /app ./
 VOLUME /data
-EXPOSE 6767
+EXPOSE 5656
 CMD ["node", "apps/server/dist/index.js"]

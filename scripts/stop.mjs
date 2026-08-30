@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const port = Number(process.env.CHECKARR_PORT ?? process.env.PORT ?? 6767);
+const port = Number(process.env.CHECKARR_PORT ?? process.env.PORT ?? 5656);
 const pidFile = path.join(root, "data", "checkarr.pid");
 const isWin = process.platform === "win32";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

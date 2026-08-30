@@ -9,7 +9,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const port = Number(process.env.CHECKARR_PORT ?? process.env.PORT ?? 6767);
+const port = Number(process.env.CHECKARR_PORT ?? process.env.PORT ?? 5656);
 const pidFile = path.join(root, "data", "checkarr.pid");
 const logFile = path.join(root, "data", "server.log");
 const isWin = process.platform === "win32";
