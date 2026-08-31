@@ -147,4 +147,17 @@ describe("purgeCorrupt", () => {
     expect(result.results[0]!.searched).toBe(1);
     expect(deletes).toHaveLength(3); // +1 from this test
   });
+
+  it("purges only the selected source", async () => {
+    const db = makeDb();
+    seed(db);
+    db.prepare("UPDATE sources SET base_url = ? WHERE id = 1").run(radarrUrl);
+    db.prepare("UPDATE sources SET base_url = ? WHERE id = 2").run(sonarrUrl);
+
+    const result = await purgeFiles(db, { status: "corrupt", sourceId: 2 });
+    expect(result.total).toBe(1);
+    expect(result.results).toHaveLength(1);
+    expect(result.results[0]!.type).toBe("sonarr");
+    expect(deletes).toHaveLength(4); // +1 (sonarr episodefile) from this test
+  });
 });

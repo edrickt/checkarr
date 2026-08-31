@@ -135,6 +135,8 @@ export interface PurgeFilter {
   status?: string;
   /** Restrict to a single media_files row (per-file purge from the library). */
   fileId?: number;
+  /** Restrict to one *arr source (the dashboard's server picker). */
+  sourceId?: number;
 }
 
 /**
@@ -156,6 +158,10 @@ export async function purgeFiles(db: DB, filter: PurgeFilter = {}): Promise<Purg
   if (filter.fileId !== undefined) {
     sql += " AND mf.id = ?";
     params.push(String(filter.fileId));
+  }
+  if (filter.sourceId !== undefined) {
+    sql += " AND mf.source_id = ?";
+    params.push(String(filter.sourceId));
   }
   sql += " ORDER BY s.id, mf.id";
   const rows = db.prepare(sql).all(...params) as unknown as PurgeRow[];

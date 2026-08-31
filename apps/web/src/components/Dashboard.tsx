@@ -47,7 +47,7 @@ export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: strin
   };
 
   const sync = useMutation({
-    mutationFn: () => api.sync(),
+    mutationFn: (sourceId?: number) => api.sync(sourceId),
     onSuccess: (data) => {
       const parts = data.results.map((r) => (r.ok ? r.name + ": +" + (r.added ?? 0) + " new, " + (r.updated ?? 0) + " updated, -" + (r.removed ?? 0) + " removed" : r.name + ": FAILED - " + r.error));
       notify(parts.join(" | ") || "nothing to sync");
@@ -63,14 +63,14 @@ export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: strin
   const cancelScan = useCancelScan();
 
   const purge = useMutation({
-    mutationFn: (status: "corrupt" | "suspect" | "all") => api.purge(status),
-    onSuccess: (data, status) => {
+    mutationFn: (v: { status: "corrupt" | "suspect" | "all"; sourceId?: number }) => api.purge(v.status, v.sourceId),
+    onSuccess: (data, v) => {
       const parts = data.results.map((r) =>
         r.name + ": " + r.deleted + " deleted, " + r.searched + " searches queued" +
         (r.skipped ? ", " + r.skipped + " already gone" : "") +
         (r.errors.length ? ", " + r.errors.length + " failed" : "")
       );
-      const what = status === "all" ? "file(s)" : status + " file(s)";
+      const what = v.status === "all" ? "file(s)" : v.status + " file(s)";
       notify(
         "Deleted " + data.total + " " + what + " and queued searches for replacements. " +
         (parts.join(" | ") || "nothing to do") +
@@ -87,6 +87,10 @@ export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: strin
   const lastScan = stats.data?.lastScan ?? null;
   const libraryId = library === "" ? undefined : Number(library);
   const libraryName = sources.data?.sources.find((s) => String(s.id) === library)?.name ?? null;
+  // Stats scoped to the picker: everything when "all", else just that server.
+  const scopeStats = libraryId === undefined ? stats.data : stats.data?.bySource.find((s) => s.sourceId === libraryId);
+  const scopeTotal = scopeStats?.total ?? 0;
+  const scopeByStatus = scopeStats?.byStatus ?? {};
 
   return (
     <div className="space-y-6">
@@ -114,15 +118,15 @@ export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: strin
           value={library}
           onChange={(e) => setLibrary(e.target.value)}
           className={BTN}
-          title="Limit scans to one library"
+          title="All buttons operate on the selected server"
         >
-          <option value="">All libraries</option>
+          <option value="">All servers</option>
           {(sources.data?.sources ?? []).map((s) => (
             <option key={s.id} value={String(s.id)}>{s.name}</option>
           ))}
         </select>
-        <button onClick={() => sync.mutate()} disabled={sync.isPending || active} className={BTN}>
-          {sync.isPending ? "Syncing..." : "Sync libraries"}
+        <button onClick={() => sync.mutate(libraryId)} disabled={sync.isPending || active} className={BTN}>
+          {sync.isPending ? "Syncing..." : "Sync library"}
         </button>
         <button
           onClick={() => startScan.mutate({ scope: "unchecked", sourceId: libraryId, sourceName: libraryName ?? undefined })}
@@ -143,13 +147,13 @@ export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: strin
         >
           {scanButtonLabel(startScan, "all", "Re-scan everything")}
         </button>
-        {(stats.data?.total ?? 0) > 0 && (
+        {scopeTotal > 0 && (
           <div className="relative">
             <button
               onClick={() => setPurgeOpen((o) => !o)}
               disabled={purge.isPending || active}
               className={BTN + " hover:border-red-600 hover:text-red-600"}
-              title="Delete files at their *arr source and queue searches for replacements"
+              title={libraryName ? "Delete files at " + libraryName + " and queue searches for replacements" : "Delete files at their *arr source and queue searches for replacements"}
             >
               {purge.isPending ? "Purging..." : "Delete & re-search"}
             </button>
@@ -157,57 +161,57 @@ export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: strin
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setPurgeOpen(false)} />
                 <div className="absolute left-0 top-full z-20 mt-1 w-64 border border-neutral-200 bg-white py-1 shadow-lg">
-                  {(byStatus.corrupt ?? 0) > 0 && (
+                  {(scopeByStatus.corrupt ?? 0) > 0 && (
                     <button
                       onClick={() => {
                         setPurgeOpen(false);
-                        const n = byStatus.corrupt ?? 0;
+                        const n = scopeByStatus.corrupt ?? 0;
                         if (
                           window.confirm(
-                            "Delete " + n + " corrupt file(s) from Radarr/Sonarr and search for replacements?\n\nThe files are removed from disk. This cannot be undone."
+                            "Delete " + n + " corrupt file(s) from " + (libraryName ?? "Radarr/Sonarr") + " and search for replacements?\n\nThe files are removed from disk. This cannot be undone."
                           )
                         ) {
-                          purge.mutate("corrupt");
+                          purge.mutate({ status: "corrupt", sourceId: libraryId });
                         }
                       }}
                       className="block w-full px-3 py-2 text-left text-sm hover:bg-neutral-100"
                     >
-                      Corrupt files <span className="text-neutral-400">({byStatus.corrupt ?? 0})</span>
+                      Corrupt files <span className="text-neutral-400">({scopeByStatus.corrupt ?? 0})</span>
                     </button>
                   )}
-                  {(byStatus.suspect ?? 0) > 0 && (
+                  {(scopeByStatus.suspect ?? 0) > 0 && (
                     <button
                       onClick={() => {
                         setPurgeOpen(false);
-                        const n = byStatus.suspect ?? 0;
+                        const n = scopeByStatus.suspect ?? 0;
                         if (
                           window.confirm(
-                            "Delete " + n + " suspect file(s) from Radarr/Sonarr and search for replacements?\n\nSuspect files may still play (recoverable errors were reported). The files are removed from disk. This cannot be undone."
+                            "Delete " + n + " suspect file(s) from " + (libraryName ?? "Radarr/Sonarr") + " and search for replacements?\n\nSuspect files may still play (recoverable errors were reported). The files are removed from disk. This cannot be undone."
                           )
                         ) {
-                          purge.mutate("suspect");
+                          purge.mutate({ status: "suspect", sourceId: libraryId });
                         }
                       }}
                       className="block w-full px-3 py-2 text-left text-sm hover:bg-neutral-100"
                     >
-                      Suspect files <span className="text-neutral-400">({byStatus.suspect ?? 0})</span>
+                      Suspect files <span className="text-neutral-400">({scopeByStatus.suspect ?? 0})</span>
                     </button>
                   )}
                   <button
                     onClick={() => {
                       setPurgeOpen(false);
-                      const n = stats.data?.total ?? 0;
+                      const n = scopeTotal;
                       if (
                         window.confirm(
-                          "Delete ALL " + n + " tracked file(s), including healthy ones, from Radarr/Sonarr and search for replacements?\n\nEvery file is removed from disk. This cannot be undone."
+                          "Delete ALL " + n + " tracked file(s)" + (libraryName ? " on " + libraryName : " across all servers") + ", including healthy ones, and search for replacements?\n\nEvery file is removed from disk. This cannot be undone."
                         )
                       ) {
-                        purge.mutate("all");
+                        purge.mutate({ status: "all", sourceId: libraryId });
                       }
                     }}
                     className="block w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-neutral-100"
                   >
-                    Everything <span className="text-neutral-400">({stats.data?.total ?? 0} files)</span>
+                    Everything <span className="text-neutral-400">({scopeTotal} files)</span>
                   </button>
                 </div>
               </>

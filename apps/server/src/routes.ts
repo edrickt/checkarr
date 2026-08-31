@@ -229,7 +229,13 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
     const b = (req.body ?? {}) as Record<string, unknown>;
     const status = typeof b.status === "string" && b.status !== "" ? b.status : "corrupt";
     if (!PURGE_STATUSES.includes(status)) throw new ApiError(400, "status must be one of: " + PURGE_STATUSES.join(", "));
-    return purgeFiles(db, { status });
+    let sourceId: number | undefined;
+    if (b.sourceId !== undefined && b.sourceId !== null) {
+      sourceId = Number(b.sourceId);
+      if (!Number.isInteger(sourceId)) throw new ApiError(400, "sourceId must be an integer");
+      getSource(sourceId); // 404 when the source does not exist
+    }
+    return purgeFiles(db, { status, sourceId });
   });
 
   // ---- scan ----
@@ -270,7 +276,22 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
             " FROM scan_runs r LEFT JOIN sources s ON s.id = r.source_id ORDER BY r.id DESC LIMIT 1"
         )
         .get() ?? null;
-    return { total, byStatus, lastScan, activeScan: scans.isActive() };
+    // Per-source breakdown so the dashboard can scope buttons to one server.
+    const sourceRows = db
+      .prepare("SELECT source_id AS sourceId, status, COUNT(*) AS n FROM media_files GROUP BY source_id, status")
+      .all() as { sourceId: number; status: string; n: number }[];
+    const bySourceMap = new Map<number, { sourceId: number; total: number; byStatus: Record<string, number> }>();
+    for (const r of sourceRows) {
+      const group = bySourceMap.get(r.sourceId) ?? {
+        sourceId: r.sourceId,
+        total: 0,
+        byStatus: { unchecked: 0, healthy: 0, suspect: 0, corrupt: 0, missing: 0, unreachable: 0 }
+      };
+      group.byStatus[r.status] = Number(r.n);
+      group.total += Number(r.n);
+      bySourceMap.set(r.sourceId, group);
+    }
+    return { total, byStatus, bySource: [...bySourceMap.values()], lastScan, activeScan: scans.isActive() };
   });
 
   // ---- files ----

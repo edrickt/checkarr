@@ -55,7 +55,8 @@ export const api = {
   deleteSource: (id: number) => send<{ ok: boolean }>("DELETE", "/api/sources/" + id),
   testSource: (id: number) => send<TestResult>("POST", "/api/sources/" + id + "/test"),
   sync: (sourceId?: number) => send<SyncResponse>("POST", "/api/sync", sourceId !== undefined ? { sourceId } : {}),
-  purge: (status: "corrupt" | "suspect" | "all") => send<PurgeResponse>("POST", "/api/purge", { status }),
+  purge: (status: "corrupt" | "suspect" | "all", sourceId?: number) =>
+    send<PurgeResponse>("POST", "/api/purge", sourceId !== undefined ? { status, sourceId } : { status }),
   purgeFile: (id: number) => send<PurgeResponse>("POST", "/api/files/" + id + "/purge", {}),
   startScan: (scope: "unchecked" | "all", sourceId?: number) =>
     send<{ runId: number }>("POST", "/api/scan", sourceId !== undefined ? { scope, sourceId } : { scope }),

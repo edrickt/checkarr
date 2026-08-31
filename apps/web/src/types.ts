@@ -64,9 +64,16 @@ export interface ScanRun {
   finishedAt: string | null;
 }
 
+export interface SourceStats {
+  sourceId: number;
+  total: number;
+  byStatus: Record<string, number>;
+}
+
 export interface Stats {
   total: number;
   byStatus: Record<string, number>;
+  bySource: SourceStats[];
   lastScan: ScanRun | null;
   activeScan: boolean;
 }
