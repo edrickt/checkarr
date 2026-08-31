@@ -19,7 +19,8 @@ export interface PurgeResult {
 interface PurgeRow {
   id: number;
   external_id: string;
-  path: string;
+  /** null = monitored at the *arr with no file (nothing to delete). */
+  path: string | null;
   source_id: number;
   type: string;
   name: string;
@@ -75,6 +76,11 @@ async function purgeRadarr(
   };
   const movieIds: number[] = [];
   await mapLimit(entries, 4, async (e) => {
+    if (e.path === null) {
+      // Monitored with no file at the *arr: nothing to delete.
+      result.skipped++;
+      return;
+    }
     const movieId = Number(e.external_id);
     try {
       const movie = (await fetchArr(
@@ -142,6 +148,11 @@ async function purgeSonarr(
   };
   const episodeIds: number[] = [];
   await mapLimit(entries, 4, async (e) => {
+    if (e.path === null) {
+      // Monitored with no file at the *arr: nothing to delete.
+      result.skipped++;
+      return;
+    }
     const episodeId = Number(e.external_id);
     try {
       // includeEpisodeFile=true embeds the file (with its path) so we can

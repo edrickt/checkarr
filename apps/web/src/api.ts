@@ -95,7 +95,7 @@ export interface MediaFileDetail {
   kind: "movie" | "episode";
   title: string;
   subtitle: string | null;
-  path: string;
+  path: string | null;
   sizeBytes: number | null;
   quality: string | null;
   status: FileStatus;

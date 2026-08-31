@@ -30,7 +30,7 @@ const SCHEMA: string[] = [
     " external_id TEXT NOT NULL," +
     " title TEXT NOT NULL," +
     " subtitle TEXT," +
-    " path TEXT NOT NULL," +
+    " path TEXT," +
     " size_bytes INTEGER," +
     " quality TEXT," +
     " status TEXT NOT NULL DEFAULT 'unchecked' CHECK (status IN" +
@@ -129,16 +129,22 @@ export function migrate(db: DB): void {
   }
 
   // Purged ("Delete & re-search") files get their own status 'purged':
-  // older installs lock media_files.status to a CHECK without it. Widen it
-  // with the standard table-rebuild recipe (foreign keys off, copy rows,
-  // swap tables). An intermediate build called the status 're-searched' -
-  // those rows are renamed during the copy. Idempotent: skips once widened.
+  // older installs lock media_files.status to a CHECK without it. Also
+  // rebuild when path is still NOT NULL: monitored items without a file at
+  // the *arr (not downloaded yet) are tracked as missing rows with a NULL
+  // path. Rebuild with the standard table-rebuild recipe (foreign keys off,
+  // copy rows, swap tables). An intermediate build called the status
+  // 're-searched' - those rows are renamed during the copy. Idempotent:
+  // skips once both are in place.
   const mediaFilesSql =
     (
       db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'media_files'").get() as
         { sql: string } | undefined
     )?.sql ?? "";
-  if (mediaFilesSql.length > 0 && !mediaFilesSql.includes("'purged'")) {
+  if (
+    mediaFilesSql.length > 0 &&
+    (!mediaFilesSql.includes("'purged'") || mediaFilesSql.includes("path TEXT NOT NULL"))
+  ) {
     db.exec("PRAGMA foreign_keys = OFF");
     db.exec("BEGIN");
     try {
@@ -150,7 +156,7 @@ export function migrate(db: DB): void {
           " external_id TEXT NOT NULL," +
           " title TEXT NOT NULL," +
           " subtitle TEXT," +
-          " path TEXT NOT NULL," +
+          " path TEXT," +
           " size_bytes INTEGER," +
           " quality TEXT," +
           " status TEXT NOT NULL DEFAULT 'unchecked' CHECK (status IN" +

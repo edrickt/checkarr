@@ -51,7 +51,7 @@ export type PersistVerdict =
  */
 export function persistCheckOutcome(
   db: DB,
-  file: { id: number; path: string; status: string },
+  file: { id: number; path: string | null; status: string },
   outcome: CheckOutcome
 ): PersistVerdict {
   const cur = db.prepare("SELECT path FROM media_files WHERE id = ?").get(file.id) as
@@ -228,28 +228,38 @@ export class ScanManager {
       try {
         const file = this.db
           .prepare("SELECT id, path, status FROM media_files WHERE id = ?")
-          .get(item.media_file_id) as { id: number; path: string; status: string } | undefined;
+          .get(item.media_file_id) as { id: number; path: string | null; status: string } | undefined;
         if (!file) {
           this.db.prepare("UPDATE scan_items SET state = 'skipped' WHERE id = ?").run(item.id);
           continue;
         }
         let outcome: CheckOutcome;
-        try {
-          outcome = await checkMediaFile(file.path, ctx);
-        } catch (err) {
-          if (this.cancelled || this.failed || ctx.signal?.aborted) {
-            // Cancelled or torn down mid-file: the in-flight check was killed
-            // on purpose, so leave the item pending instead of persisting a
-            // bogus verdict.
-            this.db.prepare("UPDATE scan_items SET state = 'pending' WHERE id = ?").run(item.id);
-            return;
-          }
+        if (file.path === null) {
+          // The *arr API monitors this item but has no file for it (not
+          // downloaded yet, or deleted awaiting a replacement): nothing on
+          // disk to decode, and only a sync can bring a file in.
           outcome = {
-            status: "suspect",
-            detail: "checker error: " + String((err as Error)?.message ?? err),
+            status: "missing",
+            detail: "no file at the *arr - monitored, not downloaded yet",
             probe: null
           };
-        }
+        } else
+          try {
+            outcome = await checkMediaFile(file.path, ctx);
+          } catch (err) {
+            if (this.cancelled || this.failed || ctx.signal?.aborted) {
+              // Cancelled or torn down mid-file: the in-flight check was killed
+              // on purpose, so leave the item pending instead of persisting a
+              // bogus verdict.
+              this.db.prepare("UPDATE scan_items SET state = 'pending' WHERE id = ?").run(item.id);
+              return;
+            }
+            outcome = {
+              status: "suspect",
+              detail: "checker error: " + String((err as Error)?.message ?? err),
+              probe: null
+            };
+          }
         // Close the window between the last in-checker cancellation
         // checkpoint and the verdict write: an abort landing here must not
         // persist a verdict computed from killed processes.

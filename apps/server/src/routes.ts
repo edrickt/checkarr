@@ -481,8 +481,19 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
     const id = Number((req.params as { id: string }).id);
     if (!Number.isInteger(id)) throw new ApiError(400, "invalid file id");
     const file = db.prepare("SELECT id, path, status FROM media_files WHERE id = ?").get(id) as
-      { id: number; path: string; status: string } | undefined;
+      { id: number; path: string | null; status: string } | undefined;
     if (!file) throw new ApiError(404, "file not found");
+    if (file.path === null) {
+      // Monitored with no file at the *arr: nothing to decode, report missing
+      // without spinning up ffmpeg.
+      const outcome = {
+        status: "missing" as const,
+        detail: "no file at the *arr - monitored, not downloaded yet",
+        probe: null
+      };
+      persistCheckOutcome(db, file, outcome);
+      return { id: file.id, status: outcome.status, detail: outcome.detail };
+    }
     const settings = getSettings(db);
     const binaries = resolveBinaries(settings);
     const problem = await binariesUsable(binaries);
@@ -513,8 +524,9 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
     const id = Number((req.params as { id: string }).id);
     if (!Number.isInteger(id)) throw new ApiError(400, "invalid file id");
     const row = db.prepare("SELECT path FROM media_files WHERE id = ?").get(id) as
-      { path: string } | undefined;
+      { path: string | null } | undefined;
     if (!row) throw new ApiError(404, "file not found");
+    if (row.path === null) throw new ApiError(404, "no file at the *arr for this item");
     const localPath = resolveLocalPath(row.path, getSettings(db).pathMappings);
     let size: number;
     try {

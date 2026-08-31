@@ -209,6 +209,28 @@ describe("recheck", () => {
   });
 });
 
+describe("null-path rows (monitored, no file at the *arr)", () => {
+  it("answers 404 on stream and reports missing on recheck", async () => {
+    const id = Number(
+      db
+        .prepare(
+          "INSERT INTO media_files (source_id, kind, external_id, title, path, status)" +
+            " VALUES (1, 'movie', '9', 'Not Yet', NULL, 'missing')"
+        )
+        .run().lastInsertRowid
+    );
+    try {
+      const stream = await app.inject({ method: "GET", url: "/api/files/" + id + "/stream" });
+      expect(stream.statusCode).toBe(404);
+      const re = await app.inject({ method: "POST", url: "/api/files/" + id + "/recheck" });
+      expect(re.statusCode).toBe(200);
+      expect(re.json()).toMatchObject({ id, status: "missing" });
+    } finally {
+      db.prepare("DELETE FROM media_files WHERE id = ?").run(id);
+    }
+  });
+});
+
 describe("masked api keys", () => {
   it("masks keys in list responses", async () => {
     const r = await app.inject({ method: "GET", url: "/api/sources" });

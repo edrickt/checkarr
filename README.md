@@ -3,7 +3,9 @@
 A locally hosted media integrity checker for Radarr and Sonarr libraries. Checkarr syncs your
 library, then automatically verifies that every movie and episode file actually plays: it opens
 the file, decodes the first few seconds, then scrubs to the middle of the file and decodes there.
-Anything that fails shows up flagged on the dashboard.
+Anything that fails shows up flagged on the dashboard. The *arr API is the source of truth for
+what belongs in the library: every monitored movie/episode gets a row, downloaded or not -
+not-yet-downloaded items show up as missing instead of being invisible.
 
 ## How it works
 
@@ -16,15 +18,15 @@ ffprobe parses the container, then ffmpeg decodes the video and audio streams in
 
 Verdicts:
 
-| Status      | Meaning                                                                                                                                                                                                                                                                                                                                        |
-| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| healthy     | probe + all decode checks clean                                                                                                                                                                                                                                                                                                                |
-| corrupt     | container unparseable or a decode check failed                                                                                                                                                                                                                                                                                                 |
-| suspect     | recoverable decode errors, unknown duration, or a timeout                                                                                                                                                                                                                                                                                      |
-| missing     | the *arr library references a file that no longer exists                                                                                                                                                                                                                                                                                       |
-| unreachable | the file exists but is not readable (permissions)                                                                                                                                                                                                                                                                                              |
-| purged      | deleted at the *arr via "Delete & re-search" and waiting for its replacement; a rescan keeps it purged (never missing), and the next sync relinks the row to the new download - even when it lands in the same folder under a different filename (new release tags) - resetting it to unchecked, or drops the row if no replacement ever comes |
-| unchecked   | synced but not checked yet                                                                                                                                                                                                                                                                                                                     |
+| Status      | Meaning                                                                                                                                                                                                                                                                                                           |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| healthy     | probe + all decode checks clean                                                                                                                                                                                                                                                                                   |
+| corrupt     | container unparseable or a decode check failed                                                                                                                                                                                                                                                                    |
+| suspect     | recoverable decode errors, unknown duration, or a timeout                                                                                                                                                                                                                                                         |
+| missing     | the *arr references a file that no longer exists - or a monitored movie/episode that has no file at all (not downloaded yet)                                                                                                                                                                                      |
+| unreachable | the file exists but is not readable (permissions)                                                                                                                                                                                                                                                                 |
+| purged      | deleted at the *arr via "Delete & re-search" and waiting for its replacement; a rescan keeps it purged (never missing), and sync keeps the row (path cleared) until the replacement lands - then relinks it, even under a different filename, resetting it to unchecked - or drops it if the item leaves the *arr |
+| unchecked   | synced but not checked yet                                                                                                                                                                                                                                                                                        |
 
 Checkarr keeps the ffmpeg findings per file, so you can see exactly what the decoder reported.
 

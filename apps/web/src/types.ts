@@ -11,7 +11,8 @@ export interface MediaFile {
   kind: "movie" | "episode";
   title: string;
   subtitle: string | null;
-  path: string;
+  /** null = monitored at the *arr with no file yet (missing). */
+  path: string | null;
   sizeBytes: number | null;
   quality: string | null;
   status: FileStatus;

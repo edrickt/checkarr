@@ -62,20 +62,27 @@ export default function DetailModal({ file, onClose }: { file: MediaFile; onClos
           </button>
         </div>
 
-        <video
-          key={f.id}
-          ref={videoRef}
-          src={api.streamUrl(f.id)}
-          controls
-          preload="metadata"
-          className="mb-3 max-h-72 w-full bg-black"
-          onError={() =>
-            setVideoError(
-              "Browser playback failed. The codec may be unsupported by the browser (e.g. DTS audio) - the ffmpeg verdict is the source of truth."
-            )
-          }
-          onLoadedMetadata={() => setVideoError(null)}
-        />
+        {f.path === null ? (
+          <div className="mb-3 border border-neutral-300 px-3 py-2 text-xs text-neutral-600">
+            No file at the *arr - this {f.kind === "movie" ? "movie" : "episode"} is monitored but has not
+            been downloaded yet. Sync again once it lands.
+          </div>
+        ) : (
+          <video
+            key={f.id}
+            ref={videoRef}
+            src={api.streamUrl(f.id)}
+            controls
+            preload="metadata"
+            className="mb-3 max-h-72 w-full bg-black"
+            onError={() =>
+              setVideoError(
+                "Browser playback failed. The codec may be unsupported by the browser (e.g. DTS audio) - the ffmpeg verdict is the source of truth."
+              )
+            }
+            onLoadedMetadata={() => setVideoError(null)}
+          />
+        )}
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <button onClick={jumpMiddle} className={BTN}>
             Jump to middle
@@ -128,7 +135,9 @@ export default function DetailModal({ file, onClose }: { file: MediaFile; onClos
 
         <div className="mt-3">
           <div className="text-xs text-neutral-400">path</div>
-          <p className="break-all font-mono text-xs text-neutral-600">{f.path}</p>
+          <p className="break-all font-mono text-xs text-neutral-600">
+            {f.path ?? "(no file at the *arr yet)"}
+          </p>
         </div>
 
         {f.errorDetail && (

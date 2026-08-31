@@ -31,25 +31,54 @@ function insertSource(
   };
 }
 
-const MOVIES = [
+interface FixtureFile {
+  path: string;
+  size: number;
+  quality: { quality: { name: string } };
+}
+
+interface MovieFixture {
+  id: number;
+  title: string;
+  year: number;
+  monitored?: boolean;
+  movieFile: FixtureFile | null;
+}
+
+const MOVIES: MovieFixture[] = [
   {
     id: 1,
     title: "Alpha",
     year: 2020,
+    monitored: true,
     movieFile: { path: "/movies/alpha.mkv", size: 123, quality: { quality: { name: "WEBDL-1080p" } } }
   },
-  { id: 2, title: "No File Yet", year: 2021, movieFile: null }
+  // Unmonitored with no file: the *arr does not consider it part of the
+  // library, so neither do we (tests below flip the flag to exercise both).
+  { id: 2, title: "No File Yet", year: 2021, monitored: false, movieFile: null }
 ];
 
 const SERIES = [{ id: 7, title: "Beta Show" }];
 
-const EPISODES = [
+interface EpisodeFixture {
+  id: number;
+  seriesId: number;
+  seasonNumber: number;
+  episodeNumber: number;
+  title: string;
+  monitored?: boolean;
+  hasFile: boolean;
+  episodeFile: FixtureFile | null;
+}
+
+const EPISODES: EpisodeFixture[] = [
   {
     id: 11,
     seriesId: 7,
     seasonNumber: 1,
     episodeNumber: 2,
     title: "Pilot",
+    monitored: true,
     hasFile: true,
     episodeFile: { path: "/tv/beta/s01e02.mkv", size: 456, quality: { quality: { name: "HDTV-720p" } } }
   },
@@ -59,6 +88,7 @@ const EPISODES = [
     seasonNumber: 1,
     episodeNumber: 3,
     title: "Two",
+    monitored: true,
     hasFile: true,
     episodeFile: { path: "/tv/beta/s01e03.mkv", size: 789, quality: { quality: { name: "HDTV-720p" } } }
   },
@@ -68,6 +98,7 @@ const EPISODES = [
     seasonNumber: 1,
     episodeNumber: 4,
     title: "Missing",
+    monitored: false,
     hasFile: false,
     episodeFile: null
   }
@@ -267,6 +298,111 @@ describe("sync", () => {
     } finally {
       MOVIES[0].id = original.id;
       MOVIES[0].movieFile = original.movieFile;
+    }
+  });
+
+  it("tracks monitored movies without files as missing, then relinks when the file lands", async () => {
+    const db = makeDb();
+    const src = insertSource(db, "radarr", url, "good-key");
+    await syncSource(db, src);
+    // The movie's file disappears at the *arr (deleted, not yet replaced) and
+    // a second monitored movie is added but not downloaded: both must show up
+    // as missing instead of vanishing from the library.
+    const original = MOVIES[0].movieFile;
+    MOVIES[0].movieFile = null;
+    MOVIES.push({ id: 9, title: "Not Yet", year: 2026, monitored: true, movieFile: null });
+    try {
+      const r = await syncSource(db, src);
+      expect(r.added).toBe(1); // id 9: new fileless row
+      expect(r.updated).toBe(1); // id 1: parked as missing
+      expect(r.removed).toBe(0);
+      const rows = db
+        .prepare("SELECT external_id, path, status, size_bytes FROM media_files ORDER BY external_id")
+        .all();
+      expect(rows).toEqual([
+        { external_id: "1", path: null, status: "missing", size_bytes: null },
+        { external_id: "9", path: null, status: "missing", size_bytes: null }
+      ]);
+    } finally {
+      MOVIES[0].movieFile = original;
+      MOVIES.pop();
+    }
+    // The replacement lands under a new filename: the row relinks to it and
+    // the never-downloaded one is dropped now that the *arr forgot it.
+    MOVIES[0].movieFile = {
+      path: "/movies/Alpha (2020) [WEBDL-1080p][PROPER].mkv",
+      size: 777,
+      quality: { quality: { name: "WEBDL-1080p" } }
+    };
+    try {
+      const r2 = await syncSource(db, src);
+      expect(r2.relinked).toBe(1);
+      expect(r2.removed).toBe(1);
+      const rows = db.prepare("SELECT external_id, path, status FROM media_files ORDER BY external_id").all();
+      expect(rows).toEqual([
+        { external_id: "1", path: "/movies/Alpha (2020) [WEBDL-1080p][PROPER].mkv", status: "unchecked" }
+      ]);
+    } finally {
+      MOVIES[0].movieFile = original;
+    }
+  });
+
+  it("unmonitored movies without files are not tracked", async () => {
+    const db = makeDb();
+    const src = insertSource(db, "radarr", url, "good-key");
+    await syncSource(db, src);
+    const original = { monitored: MOVIES[0].monitored, movieFile: MOVIES[0].movieFile };
+    MOVIES[0].monitored = false;
+    MOVIES[0].movieFile = null;
+    try {
+      const r = await syncSource(db, src);
+      expect(r.added).toBe(0);
+      expect(r.removed).toBe(1); // the row disappears with its *arr entry
+      expect(db.prepare("SELECT id FROM media_files").all()).toEqual([]);
+    } finally {
+      MOVIES[0].monitored = original.monitored;
+      MOVIES[0].movieFile = original.movieFile;
+    }
+  });
+
+  it("a purged row stays purged when sync sees it without a file", async () => {
+    const db = makeDb();
+    const src = insertSource(db, "radarr", url, "good-key");
+    await syncSource(db, src);
+    db.prepare("UPDATE media_files SET status = 'purged'").run();
+    const original = MOVIES[0].movieFile;
+    MOVIES[0].movieFile = null;
+    try {
+      const r = await syncSource(db, src);
+      expect(r.updated).toBe(1);
+      expect(r.removed).toBe(0);
+      const row = db.prepare("SELECT path, status FROM media_files").get() as {
+        path: string | null;
+        status: string;
+      };
+      expect(row.path).toBeNull();
+      expect(row.status).toBe("purged"); // still waiting for the replacement
+    } finally {
+      MOVIES[0].movieFile = original;
+    }
+  });
+
+  it("sonarr: tracks monitored episodes without files as missing", async () => {
+    const db = makeDb();
+    const src = insertSource(db, "sonarr", url, "good-key");
+    const original = EPISODES[2].monitored;
+    EPISODES[2].monitored = true;
+    try {
+      const r = await syncSource(db, src);
+      expect(r.added).toBe(3);
+      const row = db.prepare("SELECT path, status FROM media_files WHERE external_id = '13'").get() as {
+        path: string | null;
+        status: string;
+      };
+      expect(row.path).toBeNull();
+      expect(row.status).toBe("missing");
+    } finally {
+      EPISODES[2].monitored = original;
     }
   });
 

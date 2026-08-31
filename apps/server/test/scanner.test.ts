@@ -243,6 +243,31 @@ describe("ScanManager", () => {
     expect(row.status).toBe("unchecked"); // no 'missing' from the old path landed
   });
 
+  it("a monitored row with no file reports missing without touching the checker", async () => {
+    const db = makeDb();
+    db.prepare(
+      "INSERT INTO sources (type, name, base_url, api_key) VALUES ('radarr', 'R', 'http://127.0.0.1:1', 'k')"
+    ).run();
+    const fileId = Number(
+      db
+        .prepare(
+          "INSERT INTO media_files (source_id, kind, external_id, title, path, status)" +
+            " VALUES (1, 'movie', '9', 'Not Yet', NULL, 'missing')"
+        )
+        .run().lastInsertRowid
+    );
+    const m = new ScanManager(db);
+    const runId = await m.start("missing");
+    await settle(m);
+    expect(checkMock).not.toHaveBeenCalled(); // nothing on disk to decode
+    const run = db.prepare("SELECT state, total, done, issues FROM scan_runs WHERE id = ?").get(runId) as any;
+    expect(run.state).toBe("done");
+    expect(run.done).toBe(1);
+    const row = db.prepare("SELECT status, error_detail FROM media_files WHERE id = ?").get(fileId) as any;
+    expect(row.status).toBe("missing");
+    expect(row.error_detail).toContain("not downloaded");
+  });
+
   it("cancel() while idle is a no-op that preserves the last run's state", async () => {
     const db = makeDb();
     seedFile(db);
