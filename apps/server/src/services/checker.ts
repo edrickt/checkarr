@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { applyPathMappings } from "../lib/paths.js";
-import { classifyDecode, classifyProbe, excerpt, type StepVerdict } from "../lib/classify.js";
+import { classifyDecode, classifyProbe, excerpt, looksLikeMissing, progressShowsDecoding, type StepVerdict } from "../lib/classify.js";
 import { ffprobeFile, runBin, type Binaries, type ProbeInfo } from "./ffmpeg.js";
 import type { PathMapping } from "../settings.js";
 
@@ -51,8 +51,10 @@ interface Step {
 const MAX_PIXELS = String(33_554_432);
 const MAX_ALLOC = String(1024 * 1024 * 1024);
 
-function decodeArgs(file: string, opts: { seconds?: number; seekS?: number; threads?: number }): string[] {
-  const args = ["-nostdin", "-hide_banner", "-v", "error", "-max_pixels", MAX_PIXELS, "-max_alloc", MAX_ALLOC];
+export function decodeArgs(file: string, opts: { seconds?: number; seekS?: number; threads?: number }): string[] {
+  // -progress pipe:1 lets us prove that frames were actually decoded; see
+  // runDecodeStep. It writes small key=value blocks to stdout.
+  const args = ["-nostdin", "-hide_banner", "-v", "error", "-max_pixels", MAX_PIXELS, "-max_alloc", MAX_ALLOC, "-progress", "pipe:1"];
   // ffmpeg decodes as fast as it can with up to ~16 threads per process by
   // default, which oversubscribes the CPU and starves everything else.
   // Budgeting threads per worker keeps the machine responsive.
@@ -74,8 +76,16 @@ async function runDecodeStep(
   throwIfCancelled({ signal } as CheckContext);
   const r = await runBin(bin, decodeArgs(file, opts), timeoutMs, signal);
   if (r.error) return { name, verdict: "suspect", detail: name + ": could not run ffmpeg: " + r.error };
-  const v = classifyDecode({ code: r.code, stderr: r.stderr, timedOut: r.timedOut });
-  if (v === "pass") return { name, verdict: "pass", detail: null };
+  const v = classifyDecode({ code: r.code, stderr: r.stderr, timedOut: r.timedOut, signaled: r.signaled });
+  if (v === "pass") {
+    // Exit 0 with clean stderr can still mean nothing was decoded (an input
+    // seek past EOF when the container overstates its duration). Demand
+    // progress evidence before calling a segment clean.
+    if (!progressShowsDecoding(r.stdout)) {
+      return { name, verdict: "suspect", detail: name + ": ffmpeg decoded no frames - inconclusive" };
+    }
+    return { name, verdict: "pass", detail: null };
+  }
   if (v === "fail") {
     return { name, verdict: "fail", detail: name + " failed (exit " + r.code + "):" + NL + excerpt(r.stderr) };
   }
@@ -112,6 +122,11 @@ export async function checkMediaFile(originalPath: string, ctx: CheckContext): P
   const probe = await ffprobeFile(ctx.binaries.ffprobe, localPath, TIMEOUTS.probeMs, ctx.signal);
   throwIfCancelled(ctx);
   if (!probe.ok) {
+    // The file can vanish between the stat() above and the probe (*arr
+    // deletes, user moves): ENOENT is "missing", not corrupt or suspect.
+    if (looksLikeMissing(probe.stderr)) {
+      return { status: "missing", detail: "File disappeared during check: " + localPath, probe: null };
+    }
     // Only "invalid data found when processing input" is real corruption;
     // timeouts and other probe failures are inconclusive (see classifyProbe).
     const verdict = classifyProbe(probe);
@@ -141,6 +156,13 @@ export async function checkMediaFile(originalPath: string, ctx: CheckContext): P
     steps.push(midStep);
   } else if (start.verdict !== "fail" && (dur === null || dur <= 0)) {
     steps.push({ name: "middle", verdict: "suspect", detail: "middle check skipped: duration unknown" });
+  }
+
+  // The file can also vanish between the stat() and a decode step: decode
+  // failures that are really ENOENT mean "missing", never "corrupt".
+  const vanished = steps.find((s) => s.verdict === "fail" && looksLikeMissing(s.detail ?? ""));
+  if (vanished) {
+    return { status: "missing", detail: "File disappeared during check: " + localPath, probe: null };
   }
 
   // 4. Combine verdicts

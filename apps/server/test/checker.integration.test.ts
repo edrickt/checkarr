@@ -3,7 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
-import { checkMediaFile } from "../src/services/checker.js";
+import { checkMediaFile, decodeArgs } from "../src/services/checker.js";
+import { progressShowsDecoding } from "../src/lib/classify.js";
 import { binariesUsable, resolveBinaries, runBin, type Binaries } from "../src/services/ffmpeg.js";
 
 const requireHere = createRequire(import.meta.url);
@@ -84,5 +85,19 @@ describe.skipIf(!FF)("checker integration (real ffmpeg)", () => {
       mappings: [{ match: "/remote/movies", replace: dir }]
     });
     expect(r.status).toBe("healthy");
+  });
+
+  it("healthy decodes emit progress evidence (guards the no-decode rule)", async () => {
+    const args = decodeArgs(path.join(dir, "healthy.mp4"), { seconds: 10, threads: 1 });
+    const r = await runBin(binaries.ffmpeg, args, 90_000);
+    expect(r.code).toBe(0);
+    expect(progressShowsDecoding(r.stdout)).toBe(true);
+  });
+
+  it("a seek past EOF decodes nothing and must not read as a clean pass", async () => {
+    const args = decodeArgs(path.join(dir, "healthy.mp4"), { seconds: 10, seekS: 60 });
+    const r = await runBin(binaries.ffmpeg, args, 90_000);
+    expect(r.code).toBe(0);
+    expect(progressShowsDecoding(r.stdout)).toBe(false);
   });
 });

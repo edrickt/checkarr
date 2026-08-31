@@ -39,6 +39,9 @@ export interface RunResult {
   stdout: string;
   stderr: string;
   timedOut: boolean;
+  /** Signal name when the process died to a signal (SIGKILL, SIGTERM, ...);
+   *  such a death says nothing about the media being checked. */
+  signaled: string | null;
   /** Set when the process could not be spawned at all. */
   error: string | null;
 }
@@ -51,7 +54,7 @@ const OUTPUT_CAP = 256 * 1024;
 export function runBin(bin: string, args: string[], timeoutMs: number, signal?: AbortSignal): Promise<RunResult> {
   return new Promise((resolve) => {
     if (signal?.aborted) {
-      resolve({ code: -1, stdout: "", stderr: "", timedOut: false, error: "aborted before start" });
+      resolve({ code: -1, stdout: "", stderr: "", timedOut: false, signaled: null, error: "aborted before start" });
       return;
     }
     let stdout = "";
@@ -64,12 +67,13 @@ export function runBin(bin: string, args: string[], timeoutMs: number, signal?: 
       // check on Windows (maps to CREATE_NO_WINDOW); ignored on POSIX.
       child = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
     } catch (err) {
-      resolve({ code: -1, stdout: "", stderr: "", timedOut: false, error: String((err as Error)?.message ?? err) });
+      resolve({ code: -1, stdout: "", stderr: "", timedOut: false, signaled: null, error: String((err as Error)?.message ?? err) });
       return;
     }
+    let killTimer: NodeJS.Timeout | null = null;
     const killTree = (): void => {
       try { child.kill("SIGTERM"); } catch { /* already gone */ }
-      setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* already gone */ } }, 2000);
+      killTimer = setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* already gone */ } }, 2000);
     };
     child.stdout?.on("data", (d: Buffer) => { if (stdout.length < OUTPUT_CAP) stdout += d.toString("utf8"); });
     child.stderr?.on("data", (d: Buffer) => { if (stderr.length < OUTPUT_CAP) stderr += d.toString("utf8"); });
@@ -79,15 +83,18 @@ export function runBin(bin: string, args: string[], timeoutMs: number, signal?: 
     }, timeoutMs);
     const onAbort = (): void => killTree();
     signal?.addEventListener("abort", onAbort, { once: true });
-    const finish = (code: number, error: string | null): void => {
+    const finish = (code: number, error: string | null, signaled: string | null): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
       signal?.removeEventListener("abort", onAbort);
-      resolve({ code, stdout, stderr, timedOut, error });
+      resolve({ code, stdout, stderr, timedOut, signaled, error });
     };
-    child.on("error", (err: Error) => finish(-1, err.message));
-    child.on("close", (code: number | null) => finish(code ?? -1, null));
+    child.on("error", (err: Error) => finish(-1, err.message, null));
+    // A null exit code means signal death (OOM killer, manual kill): record
+    // which signal so classification can treat it as inconclusive, not fail.
+    child.on("close", (code: number | null) => finish(code ?? -1, null, child.signalCode ?? null));
   });
 }
 
