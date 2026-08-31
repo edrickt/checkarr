@@ -268,7 +268,7 @@ export default function LibraryTable({
                   {checkingId === f.id && <span className="mr-2 text-xs text-neutral-400">Checking...</span>}
                   {purgingId === f.id && <span className="mr-2 text-xs text-neutral-400">Deleting...</span>}
                   <DropdownButton
-                    label="\u22EF"
+                    label="⋯"
                     ariaLabel={"Actions for " + f.title}
                     size="sm"
                     caret={false}
