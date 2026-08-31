@@ -229,6 +229,11 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
     const b = (req.body ?? {}) as Record<string, unknown>;
     const status = typeof b.status === "string" && b.status !== "" ? b.status : "corrupt";
     if (!PURGE_STATUSES.includes(status)) throw new ApiError(400, "status must be one of: " + PURGE_STATUSES.join(", "));
+    // "all"/"healthy" delete good media, not just broken files: demand an
+    // explicit opt-in so a stray or CSRF'd request cannot wipe a library.
+    if ((status === "all" || status === "healthy") && b.confirm !== true) {
+      throw new ApiError(400, "purging '" + status + "' deletes files that may be fine - send { confirm: true } to proceed");
+    }
     let sourceId: number | undefined;
     if (b.sourceId !== undefined && b.sourceId !== null) {
       sourceId = Number(b.sourceId);
@@ -365,8 +370,11 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
     if (scans.isActive()) throw new ApiError(409, "A scan is running - wait for it to finish or cancel it");
     const id = Number((req.params as { id: string }).id);
     if (!Number.isInteger(id)) throw new ApiError(400, "invalid file id");
-    const exists = db.prepare("SELECT id FROM media_files WHERE id = ?").get(id);
-    if (!exists) throw new ApiError(404, "file not found");
+    const row = db
+      .prepare("SELECT mf.id, s.enabled FROM media_files mf JOIN sources s ON s.id = mf.source_id WHERE mf.id = ?")
+      .get(id) as { id: number; enabled: number } | undefined;
+    if (!row) throw new ApiError(404, "file not found");
+    if (!row.enabled) throw new ApiError(409, "this file's source is disabled - enable it in Settings to purge");
     return purgeFiles(db, { fileId: id });
   });
 

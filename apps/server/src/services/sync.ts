@@ -31,10 +31,12 @@ export async function fetchArr(
   init?: { method?: string; body?: unknown }
 ): Promise<unknown> {
   const root = trimSlashes(baseUrl);
+  const method = init?.method ?? "GET";
   let res: Response;
+  let text: string;
   try {
     res = await fetch(root + apiPath, {
-      method: init?.method ?? "GET",
+      method,
       headers: {
         "X-Api-Key": apiKey,
         Accept: "application/json",
@@ -43,12 +45,20 @@ export async function fetchArr(
       body: init?.body !== undefined ? JSON.stringify(init.body) : undefined,
       signal: AbortSignal.timeout(20_000)
     });
+    // Radarr/Sonarr delete endpoints answer with an empty body; consume as
+    // text and parse only when non-empty so a successful delete never throws.
+    text = await res.text();
   } catch (err) {
     throw new Error("Cannot reach " + root + " : " + String((err as Error)?.message ?? err));
   }
   if (res.status === 401) throw new Error("Unauthorized (401) - check the API key");
-  if (!res.ok) throw new Error("GET " + apiPath + " failed: HTTP " + res.status + " " + res.statusText);
-  return res.json();
+  if (!res.ok) throw new Error(method + " " + apiPath + " failed: HTTP " + res.status + " " + res.statusText);
+  if (text.trim().length === 0) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(method + " " + apiPath + " returned HTTP " + res.status + " with a non-JSON body");
+  }
 }
 
 interface QualityWrapped {

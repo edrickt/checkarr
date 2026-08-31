@@ -42,11 +42,17 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
 }
 
 interface RadarrMovieDetail {
-  movieFile?: { id?: number } | null;
+  movieFile?: { id?: number; path?: string } | null;
 }
 
 interface SonarrEpisodeDetail {
   episodeFileId?: number | null;
+  episodeFile?: { id?: number; path?: string } | null;
+}
+
+/** Compare *arr-reported paths, normalizing Windows separators. */
+function sameArrPath(a: string, b: string): boolean {
+  return a.replace(/\\/g, "/") === b.replace(/\\/g, "/");
 }
 
 /**
@@ -68,9 +74,20 @@ async function purgeRadarr(source: PurgeRow, entries: PurgeRow[]): Promise<Purge
     const movieId = Number(e.external_id);
     try {
       const movie = (await fetchArr(source.base_url, source.api_key, "/api/v3/movie/" + movieId)) as RadarrMovieDetail;
-      const fileId = movie?.movieFile?.id;
+      const file = movie?.movieFile ?? null;
+      const fileId = file?.id;
       if (!Number.isInteger(fileId)) {
         result.skipped++;
+        return;
+      }
+      // Only delete when the *arr file is still the one we checked: a stale
+      // row (file replaced or moved since the scan) must not cost a good file.
+      const currentPath = typeof file?.path === "string" ? file.path : null;
+      if (currentPath === null || !sameArrPath(currentPath, e.path)) {
+        result.skipped++;
+        result.errors.push(
+          e.path + ": *arr now points at " + (currentPath ?? "no file") + " - re-sync and re-scan, then purge again"
+        );
         return;
       }
       await fetchArr(source.base_url, source.api_key, "/api/v3/moviefile/" + fileId, { method: "DELETE" });
@@ -81,11 +98,15 @@ async function purgeRadarr(source: PurgeRow, entries: PurgeRow[]): Promise<Purge
     }
   });
   if (movieIds.length > 0) {
-    await fetchArr(source.base_url, source.api_key, "/api/v3/command", {
-      method: "POST",
-      body: { name: "MoviesSearch", movieIds }
-    });
-    result.searched = movieIds.length;
+    try {
+      await fetchArr(source.base_url, source.api_key, "/api/v3/command", {
+        method: "POST",
+        body: { name: "MoviesSearch", movieIds }
+      });
+      result.searched = movieIds.length;
+    } catch (err) {
+      result.errors.push("replacement search failed: " + String((err as Error)?.message ?? err));
+    }
   }
   return result;
 }
@@ -107,10 +128,25 @@ async function purgeSonarr(source: PurgeRow, entries: PurgeRow[]): Promise<Purge
   await mapLimit(entries, 4, async (e) => {
     const episodeId = Number(e.external_id);
     try {
-      const episode = (await fetchArr(source.base_url, source.api_key, "/api/v3/episode/" + episodeId)) as SonarrEpisodeDetail;
-      const fileId = episode?.episodeFileId;
+      // includeEpisodeFile=true embeds the file (with its path) so we can
+      // verify it is still the episode file we checked before deleting it.
+      const episode = (await fetchArr(
+        source.base_url,
+        source.api_key,
+        "/api/v3/episode/" + episodeId + "?includeEpisodeFile=true"
+      )) as SonarrEpisodeDetail;
+      const file = episode?.episodeFile ?? null;
+      const fileId = typeof episode?.episodeFileId === "number" ? episode.episodeFileId : file?.id;
       if (!Number.isInteger(fileId)) {
         result.skipped++;
+        return;
+      }
+      const currentPath = typeof file?.path === "string" ? file.path : null;
+      if (currentPath === null || !sameArrPath(currentPath, e.path)) {
+        result.skipped++;
+        result.errors.push(
+          e.path + ": *arr now points at " + (currentPath ?? "no file") + " - re-sync and re-scan, then purge again"
+        );
         return;
       }
       await fetchArr(source.base_url, source.api_key, "/api/v3/episodefile/" + fileId, { method: "DELETE" });
@@ -121,11 +157,15 @@ async function purgeSonarr(source: PurgeRow, entries: PurgeRow[]): Promise<Purge
     }
   });
   if (episodeIds.length > 0) {
-    await fetchArr(source.base_url, source.api_key, "/api/v3/command", {
-      method: "POST",
-      body: { name: "EpisodesSearch", episodeIds }
-    });
-    result.searched = episodeIds.length;
+    try {
+      await fetchArr(source.base_url, source.api_key, "/api/v3/command", {
+        method: "POST",
+        body: { name: "EpisodesSearch", episodeIds }
+      });
+      result.searched = episodeIds.length;
+    } catch (err) {
+      result.errors.push("replacement search failed: " + String((err as Error)?.message ?? err));
+    }
   }
   return result;
 }
@@ -175,7 +215,21 @@ export async function purgeFiles(db: DB, filter: PurgeFilter = {}): Promise<Purg
 
   const results: PurgeSourceResult[] = [];
   for (const { source, entries } of bySource.values()) {
-    results.push(source.type === "sonarr" ? await purgeSonarr(source, entries) : await purgeRadarr(source, entries));
+    // One failing source must not hide what already happened elsewhere or
+    // skip the remaining sources: report the failure and keep going.
+    try {
+      results.push(source.type === "sonarr" ? await purgeSonarr(source, entries) : await purgeRadarr(source, entries));
+    } catch (err) {
+      results.push({
+        sourceId: source.source_id,
+        name: source.name,
+        type: source.type,
+        deleted: 0,
+        searched: 0,
+        skipped: 0,
+        errors: ["purge failed: " + String((err as Error)?.message ?? err)]
+      });
+    }
   }
   return { results, total: results.reduce((n, r) => n + r.deleted, 0) };
 }

@@ -63,7 +63,8 @@ export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: strin
   const cancelScan = useCancelScan();
 
   const purge = useMutation({
-    mutationFn: (v: { status: "corrupt" | "suspect" | "all"; sourceId?: number }) => api.purge(v.status, v.sourceId),
+    mutationFn: (v: { status: "corrupt" | "suspect" | "all"; sourceId?: number; confirm?: boolean }) =>
+      api.purge(v.status, v.sourceId, v.confirm),
     onSuccess: (data, v) => {
       const parts = data.results.map((r) =>
         r.name + ": " + r.deleted + " deleted, " + r.searched + " searches queued" +
@@ -206,7 +207,7 @@ export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: strin
                           "Delete ALL " + n + " tracked file(s)" + (libraryName ? " on " + libraryName : " across all servers") + ", including healthy ones, and search for replacements?\n\nEvery file is removed from disk. This cannot be undone."
                         )
                       ) {
-                        purge.mutate({ status: "all", sourceId: libraryId });
+                        purge.mutate({ status: "all", sourceId: libraryId, confirm: true });
                       }
                     }}
                     className="block w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-neutral-100"
