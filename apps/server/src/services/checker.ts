@@ -5,12 +5,10 @@ import { ffprobeFile, runBin, type Binaries, type ProbeInfo } from "./ffmpeg.js"
 import type { PathMapping } from "../settings.js";
 
 export type FileStatus = "unchecked" | "healthy" | "suspect" | "corrupt" | "missing" | "unreachable";
-export type ScanMode = "quick" | "deep";
 
 export interface CheckContext {
   binaries: Binaries;
   mappings: PathMapping[];
-  mode: ScanMode;
   /** Decoder thread budget per ffmpeg process; keeps N workers inside the box's cores. */
   threads?: number;
   /** Aborted when the scan is cancelled: in-flight processes are killed and
@@ -28,7 +26,7 @@ export interface CheckOutcome {
   probe: ProbeInfo | null;
 }
 
-const TIMEOUTS = { probeMs: 30_000, segmentMs: 90_000, deepMs: 1_800_000 };
+const TIMEOUTS = { probeMs: 30_000, segmentMs: 90_000 };
 const NL = String.fromCharCode(10);
 
 export function resolveLocalPath(originalPath: string, mappings: PathMapping[]): string {
@@ -88,9 +86,8 @@ async function runDecodeStep(
 const RANK: Record<StepVerdict, number> = { pass: 0, suspect: 1, fail: 2 };
 
 /**
- * Full per-file check: accessibility, container probe, then decode tests.
- * quick = first 10 seconds + 10 seconds from the middle (50% of duration).
- * deep  = complete decode of every stream.
+ * Full per-file check: accessibility, container probe, then decode tests
+ * (first 10 seconds + 10 seconds from the middle, 50% of duration).
  */
 export async function checkMediaFile(originalPath: string, ctx: CheckContext): Promise<CheckOutcome> {
   throwIfCancelled(ctx);
@@ -124,26 +121,21 @@ export async function checkMediaFile(originalPath: string, ctx: CheckContext): P
   }
   const info = probe.info;
 
-  // 3. Decode checks
+  // 3. Decode checks: the first 10 seconds, then 10 seconds from the middle
+  // (50% of duration) when the duration is known.
   const steps: Step[] = [];
-  if (ctx.mode === "deep") {
-    const full = await runDecodeStep(ctx.binaries.ffmpeg, localPath, "full decode", { threads: ctx.threads }, TIMEOUTS.deepMs, ctx.signal);
+  const start = await runDecodeStep(ctx.binaries.ffmpeg, localPath, "start (first 10s)", { seconds: 10, threads: ctx.threads }, TIMEOUTS.segmentMs, ctx.signal);
+  throwIfCancelled(ctx);
+  steps.push(start);
+  const dur = info.durationS;
+  if (start.verdict !== "fail" && dur !== null && dur > 0) {
     throwIfCancelled(ctx);
-    steps.push(full);
-  } else {
-    const start = await runDecodeStep(ctx.binaries.ffmpeg, localPath, "start (first 10s)", { seconds: 10, threads: ctx.threads }, TIMEOUTS.segmentMs, ctx.signal);
+    const mid = Math.max(0, Math.floor(dur / 2));
+    const midStep = await runDecodeStep(ctx.binaries.ffmpeg, localPath, "middle (from " + mid + "s, 10s)", { seconds: 10, seekS: mid, threads: ctx.threads }, TIMEOUTS.segmentMs, ctx.signal);
     throwIfCancelled(ctx);
-    steps.push(start);
-    const dur = info.durationS;
-    if (start.verdict !== "fail" && dur !== null && dur > 0) {
-      throwIfCancelled(ctx);
-      const mid = Math.max(0, Math.floor(dur / 2));
-      const midStep = await runDecodeStep(ctx.binaries.ffmpeg, localPath, "middle (from " + mid + "s, 10s)", { seconds: 10, seekS: mid, threads: ctx.threads }, TIMEOUTS.segmentMs, ctx.signal);
-      throwIfCancelled(ctx);
-      steps.push(midStep);
-    } else if (start.verdict !== "fail" && (dur === null || dur <= 0)) {
-      steps.push({ name: "middle", verdict: "suspect", detail: "middle check skipped: duration unknown" });
-    }
+    steps.push(midStep);
+  } else if (start.verdict !== "fail" && (dur === null || dur <= 0)) {
+    steps.push({ name: "middle", verdict: "suspect", detail: "middle check skipped: duration unknown" });
   }
 
   // 4. Combine verdicts

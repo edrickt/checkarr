@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import fs from "node:fs";
 import { getSettings, saveSettings, type AppSettings, type PathMapping } from "./settings.js";
 import { binariesUsable, resolveBinaries } from "./services/ffmpeg.js";
-import { checkMediaFile, resolveLocalPath, type ScanMode } from "./services/checker.js";
+import { checkMediaFile, resolveLocalPath } from "./services/checker.js";
 import { persistOutcome, ScanManager } from "./services/scanner.js";
 import { syncSource, testSource, type SourceCore } from "./services/sync.js";
 import { purgeCorrupt } from "./services/purge.js";
@@ -230,10 +230,9 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
   // ---- scan ----
   app.post("/api/scan", async (req) => {
     const b = (req.body ?? {}) as Record<string, unknown>;
-    const mode: ScanMode = b.mode === "deep" ? "deep" : "quick";
     const scope = b.scope === "all" ? "all" : "unchecked";
-    const runId = await scans.start(mode, scope);
-    return { runId, mode, scope };
+    const runId = await scans.start(scope);
+    return { runId, scope };
   });
 
   app.post("/api/scan/cancel", async () => {
@@ -255,7 +254,7 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
     const lastScan =
       db
         .prepare(
-          "SELECT id, mode, scope, state, total, done, issues, started_at AS startedAt, finished_at AS finishedAt" +
+          "SELECT id, scope, state, total, done, issues, started_at AS startedAt, finished_at AS finishedAt" +
             " FROM scan_runs ORDER BY id DESC LIMIT 1"
         )
         .get() ?? null;
@@ -338,7 +337,7 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
     const binaries = resolveBinaries(settings);
     const problem = await binariesUsable(binaries);
     if (problem) throw new ApiError(400, problem);
-    const outcome = await checkMediaFile(file.path, { binaries, mappings: settings.pathMappings, mode: "quick" });
+    const outcome = await checkMediaFile(file.path, { binaries, mappings: settings.pathMappings });
     persistOutcome(db, file.id, outcome);
     return { id: file.id, status: outcome.status, detail: outcome.detail };
   });

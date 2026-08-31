@@ -55,34 +55,33 @@ describe.skipIf(!FF)("checker integration (real ffmpeg)", () => {
   }, 240_000);
 
   it("marks a healthy file healthy", async () => {
-    const r = await checkMediaFile(path.join(dir, "healthy.mp4"), { binaries, mappings: [], mode: "quick" });
+    const r = await checkMediaFile(path.join(dir, "healthy.mp4"), { binaries, mappings: [] });
     expect(r.status).toBe("healthy");
     expect(r.detail).toBeNull();
     expect(r.probe?.durationS ?? 0).toBeGreaterThan(3);
   });
 
   it("marks a truncated file corrupt", async () => {
-    const r = await checkMediaFile(path.join(dir, "truncated.mp4"), { binaries, mappings: [], mode: "quick" });
+    const r = await checkMediaFile(path.join(dir, "truncated.mp4"), { binaries, mappings: [] });
     expect(r.status).toBe("corrupt");
     expect(r.detail).toBeTruthy();
   });
 
   it("catches damage in the middle via the middle check", async () => {
-    const r = await checkMediaFile(path.join(dir, "middle-damage.mp4"), { binaries, mappings: [], mode: "quick" });
+    const r = await checkMediaFile(path.join(dir, "middle-damage.mp4"), { binaries, mappings: [] });
     expect(["corrupt", "suspect"]).toContain(r.status);
     expect(r.detail).toBeTruthy();
   });
 
   it("reports missing files as missing", async () => {
-    const r = await checkMediaFile(path.join(dir, "does-not-exist.mp4"), { binaries, mappings: [], mode: "quick" });
+    const r = await checkMediaFile(path.join(dir, "does-not-exist.mp4"), { binaries, mappings: [] });
     expect(r.status).toBe("missing");
   });
 
   it("applies path mappings before checking", async () => {
     const r = await checkMediaFile("/remote/movies/healthy.mp4", {
       binaries,
-      mappings: [{ match: "/remote/movies", replace: dir }],
-      mode: "quick"
+      mappings: [{ match: "/remote/movies", replace: dir }]
     });
     expect(r.status).toBe("healthy");
   });

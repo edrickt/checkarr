@@ -15,7 +15,7 @@ export interface ScanSnapshot {
 export function useStartScan(onError?: (err: Error) => void) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (v: { mode: "quick" | "deep"; scope: "unchecked" | "all" }) => api.startScan(v.mode, v.scope),
+    mutationFn: (v: { scope: "unchecked" | "all" }) => api.startScan(v.scope),
     onMutate: async (v) => {
       await queryClient.cancelQueries({ queryKey: ["scan"] });
       const prev = queryClient.getQueryData<ScanSnapshot>(["scan"]);
@@ -23,7 +23,6 @@ export function useStartScan(onError?: (err: Error) => void) {
         active: true,
         run: {
           id: 0, // placeholder until the server returns the real run
-          mode: v.mode,
           scope: v.scope,
           state: "starting",
           total: 0,

@@ -20,7 +20,7 @@ async function main(): Promise<void> {
   console.log("encode code:", enc.code, "stderr:", JSON.stringify(enc.stderr.slice(-300)));
   console.log("file size:", fs.statSync(file).size);
 
-  const outcome = await checkMediaFile(file, { binaries, mappings: [], mode: "quick" });
+  const outcome = await checkMediaFile(file, { binaries, mappings: [] });
   console.log("outcome:", JSON.stringify(outcome, null, 2));
 }
 

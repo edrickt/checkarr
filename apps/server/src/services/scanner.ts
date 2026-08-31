@@ -1,7 +1,7 @@
 import type { DB } from "../db.js";
 import { getSettings, type PathMapping } from "../settings.js";
 import { binariesUsable, resolveBinaries, type Binaries } from "./ffmpeg.js";
-import { checkMediaFile, type CheckContext, type CheckOutcome, type ScanMode } from "./checker.js";
+import { checkMediaFile, type CheckContext, type CheckOutcome } from "./checker.js";
 import { ApiError } from "../lib/api-error.js";
 
 const NL = String.fromCharCode(10);
@@ -55,7 +55,7 @@ export class ScanManager {
     if (this.activeRunId === null) return null;
     const row = this.db
       .prepare(
-        "SELECT id, mode, scope, state, total, done, issues, started_at AS startedAt, finished_at AS finishedAt" +
+        "SELECT id, scope, state, total, done, issues, started_at AS startedAt, finished_at AS finishedAt" +
           " FROM scan_runs WHERE id = ?"
       )
       .get(this.activeRunId) as Record<string, unknown> | undefined;
@@ -67,7 +67,7 @@ export class ScanManager {
     return row;
   }
 
-  async start(mode: ScanMode, scope: "unchecked" | "all"): Promise<number> {
+  async start(scope: "unchecked" | "all"): Promise<number> {
     if (this.running) throw new ApiError(409, "A scan is already running");
     this.cancelled = false;
     const settings = getSettings(this.db);
@@ -86,8 +86,8 @@ export class ScanManager {
     if (total === 0) throw new ApiError(400, "No files match the scan scope");
 
     const runRes = this.db
-      .prepare("INSERT INTO scan_runs (mode, scope, state, total, started_at) VALUES (?, ?, 'running', ?, ?)")
-      .run(mode, scope, total, new Date().toISOString());
+      .prepare("INSERT INTO scan_runs (mode, scope, state, total, started_at) VALUES ('quick', ?, 'running', ?, ?)")
+      .run(scope, total, new Date().toISOString());
     const runId = Number(runRes.lastInsertRowid);
     this.db
       .prepare("INSERT INTO scan_items (run_id, media_file_id) SELECT ?, id FROM media_files" + where + " ORDER BY id")
@@ -96,7 +96,7 @@ export class ScanManager {
     this.running = true;
     this.activeRunId = runId;
     this.cancelController = new AbortController();
-    void this.drive(runId, mode, binaries, settings.pathMappings, settings.concurrency);
+    void this.drive(runId, binaries, settings.pathMappings, settings.concurrency);
     return runId;
   }
 
@@ -109,7 +109,6 @@ export class ScanManager {
 
   private async drive(
     runId: number,
-    mode: ScanMode,
     binaries: Binaries,
     mappings: PathMapping[],
     concurrency: number
@@ -120,7 +119,7 @@ export class ScanManager {
       // equal the worker count no matter the hardware. The machine keeps its
       // headroom; raise concurrency if you want more decode throughput.
       const threads = 1;
-      const ctx: CheckContext = { binaries, mappings, mode, threads, signal: this.cancelController?.signal };
+      const ctx: CheckContext = { binaries, mappings, threads, signal: this.cancelController?.signal };
       const workers: Promise<void>[] = [];
       for (let i = 0; i < n; i++) workers.push(this.worker(runId, ctx));
       await Promise.all(workers);

@@ -51,7 +51,7 @@ const SCHEMA: string[] = [
   "CREATE INDEX IF NOT EXISTS idx_media_files_source ON media_files(source_id)",
   "CREATE TABLE IF NOT EXISTS scan_runs (" +
     " id INTEGER PRIMARY KEY AUTOINCREMENT," +
-    " mode TEXT NOT NULL CHECK (mode IN ('quick','deep'))," +
+    " mode TEXT NOT NULL CHECK (mode IN ('quick'))," +
     " scope TEXT NOT NULL DEFAULT 'unchecked' CHECK (scope IN ('unchecked','all'))," +
     " state TEXT NOT NULL DEFAULT 'running' CHECK (state IN ('running','done','cancelled'))," +
     " total INTEGER NOT NULL DEFAULT 0," +

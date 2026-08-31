@@ -53,7 +53,6 @@ export interface SettingsResponse {
 
 export interface ScanRun {
   id: number;
-  mode: string;
   scope: string;
   state: string;
   total: number;

@@ -72,10 +72,10 @@ export default function App() {
             <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-2 text-xs text-neutral-500">
               <span className="font-medium text-neutral-900">
                 {run.state === "cancelling"
-                  ? "Cancelling " + run.mode + " scan..."
+                  ? "Cancelling scan..."
                   : run.state === "starting"
-                    ? "Starting " + run.mode + " scan..."
-                    : run.mode + " scan running"}
+                    ? "Starting scan..."
+                    : "Scan running"}
               </span>
               {run.state !== "starting" && (
                 <span>

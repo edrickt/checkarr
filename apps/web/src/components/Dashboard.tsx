@@ -19,13 +19,8 @@ const BTN_PRIMARY = "bg-neutral-900 px-3 py-1.5 text-sm text-white hover:bg-neut
 type StartScan = ReturnType<typeof useStartScan>;
 
 /** Show "Starting..." only on the button that was actually clicked. */
-function scanButtonLabel(
-  m: StartScan,
-  mode: "quick" | "deep",
-  scope: "unchecked" | "all",
-  idle: string
-): string {
-  return m.isPending && m.variables?.mode === mode && m.variables?.scope === scope ? "Starting..." : idle;
+function scanButtonLabel(m: StartScan, scope: "unchecked" | "all", idle: string): string {
+  return m.isPending && m.variables?.scope === scope ? "Starting..." : idle;
 }
 
 export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: string | null) => void }) {
@@ -112,29 +107,22 @@ export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: strin
           {sync.isPending ? "Syncing..." : "Sync libraries"}
         </button>
         <button
-          onClick={() => startScan.mutate({ mode: "quick", scope: "unchecked" })}
+          onClick={() => startScan.mutate({ scope: "unchecked" })}
           disabled={active || startScan.isPending}
           className={BTN_PRIMARY}
         >
-          {scanButtonLabel(startScan, "quick", "unchecked", "Quick scan unchecked")}
-        </button>
-        <button
-          onClick={() => startScan.mutate({ mode: "deep", scope: "unchecked" })}
-          disabled={active || startScan.isPending}
-          className={BTN}
-        >
-          {scanButtonLabel(startScan, "deep", "unchecked", "Deep scan unchecked")}
+          {scanButtonLabel(startScan, "unchecked", "Scan unchecked")}
         </button>
         <button
           onClick={() => {
             if (window.confirm("Re-check every file, including healthy ones? This takes much longer.")) {
-              startScan.mutate({ mode: "quick", scope: "all" });
+              startScan.mutate({ scope: "all" });
             }
           }}
           disabled={active || startScan.isPending}
           className={BTN}
         >
-          {scanButtonLabel(startScan, "quick", "all", "Re-scan everything")}
+          {scanButtonLabel(startScan, "all", "Re-scan everything")}
         </button>
         {(byStatus.corrupt ?? 0) > 0 && (
           <button
@@ -178,7 +166,6 @@ export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: strin
           </div>
           <dl className="mt-2 grid grid-cols-2 gap-x-6 gap-y-1 text-xs sm:grid-cols-3">
             {[
-              ["mode", run.mode],
               ["scope", run.scope],
               ["progress", run.done + " / " + run.total],
               ["issues", String(run.issues)],
@@ -201,7 +188,7 @@ export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: strin
         <p className="font-medium text-neutral-700">How checks work</p>
         <p className="mt-1">
           Every file is probed with ffprobe, then decoded with ffmpeg: the first 10 seconds, and 10 seconds from the
-          middle (50% of duration). Deep scans decode the entire file. Files that fail to decode are marked corrupt;
+          middle (50% of duration). Files that fail to decode are marked corrupt;
           files with recoverable errors or no known duration are marked suspect.
         </p>
       </div>

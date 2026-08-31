@@ -2,8 +2,8 @@
 
 A locally hosted media integrity checker for Radarr and Sonarr libraries. Checkarr syncs your
 library, then automatically verifies that every movie and episode file actually plays: it opens
-the file, decodes the first few seconds, scrubs to the middle of the file and decodes there, and
-(optionally) decodes the whole thing. Anything that fails shows up flagged on the dashboard.
+the file, decodes the first few seconds, then scrubs to the middle of the file and decodes there.
+Anything that fails shows up flagged on the dashboard.
 
 ## How it works
 
@@ -12,7 +12,6 @@ ffprobe parses the container, then ffmpeg decodes the video and audio streams in
 
 - **Start check** - decode the first 10 seconds of every stream ("open it and play it")
 - **Middle check** - input-seek to 50% of the duration and decode 10 seconds ("scrub to the middle")
-- **Deep check** (optional) - decode the entire file end to end
 
 Verdicts:
 
@@ -92,7 +91,7 @@ CHECKARR_WEB_DIST, LOG_LEVEL.
     DELETE /api/sources/:id               delete source and its files
     POST   /api/sources/:id/test          verify URL + key (GET /api/v3/system/status)
     POST   /api/sync                      pull libraries from all enabled sources (or { sourceId })
-    POST   /api/scan                      { mode: quick|deep, scope: unchecked|all }
+    POST   /api/scan                      { scope: unchecked|all }
     POST   /api/purge/corrupt             delete corrupt files at their *arr source + search replacements
     POST   /api/scan/cancel               stop the running scan
     GET    /api/scan/current              progress of the active/last run
