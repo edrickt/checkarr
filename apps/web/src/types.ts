@@ -54,6 +54,8 @@ export interface SettingsResponse {
 export interface ScanRun {
   id: number;
   scope: string;
+  sourceId: number | null;
+  sourceName: string | null;
   state: string;
   total: number;
   done: number;

@@ -56,7 +56,8 @@ export const api = {
   testSource: (id: number) => send<TestResult>("POST", "/api/sources/" + id + "/test"),
   sync: (sourceId?: number) => send<SyncResponse>("POST", "/api/sync", sourceId !== undefined ? { sourceId } : {}),
   purgeCorrupt: () => send<PurgeResponse>("POST", "/api/purge/corrupt", {}),
-  startScan: (scope: "unchecked" | "all") => send<{ runId: number }>("POST", "/api/scan", { scope }),
+  startScan: (scope: "unchecked" | "all", sourceId?: number) =>
+    send<{ runId: number }>("POST", "/api/scan", sourceId !== undefined ? { scope, sourceId } : { scope }),
   cancelScan: () => send<{ ok: boolean }>("POST", "/api/scan/cancel"),
   currentScan: () => get<{ run: ScanRun | null; active: boolean }>("/api/scan/current"),
   stats: () => get<Stats>("/api/stats"),

@@ -53,6 +53,7 @@ const SCHEMA: string[] = [
     " id INTEGER PRIMARY KEY AUTOINCREMENT," +
     " mode TEXT NOT NULL CHECK (mode IN ('quick'))," +
     " scope TEXT NOT NULL DEFAULT 'unchecked' CHECK (scope IN ('unchecked','all'))," +
+    " source_id INTEGER REFERENCES sources(id) ON DELETE SET NULL," +
     " state TEXT NOT NULL DEFAULT 'running' CHECK (state IN ('running','done','cancelled'))," +
     " total INTEGER NOT NULL DEFAULT 0," +
     " done INTEGER NOT NULL DEFAULT 0," +
@@ -70,6 +71,12 @@ const SCHEMA: string[] = [
 
 export function migrate(db: DB): void {
   for (const stmt of SCHEMA) db.exec(stmt);
+  // Per-library scans: scan_runs.source_id ships in the CREATE TABLE above for
+  // fresh installs; older DBs need the column added (no-op if already there).
+  const cols = db.prepare("PRAGMA table_info(scan_runs)").all() as { name: string }[];
+  if (!cols.some((c) => c.name === "source_id")) {
+    db.exec("ALTER TABLE scan_runs ADD COLUMN source_id INTEGER REFERENCES sources(id) ON DELETE SET NULL");
+  }
 }
 
 export function openDb(): DB {

@@ -30,6 +30,9 @@ export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: strin
   const stats = useQuery({ queryKey: ["stats"], queryFn: api.stats, refetchInterval: (q) => (q.state.data?.activeScan ? 1500 : 5000) });
   const scan = useQuery({ queryKey: ["scan"], queryFn: api.currentScan, refetchInterval: (q) => (q.state.data?.active ? 1500 : 5000) });
   const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
+  const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources });
+  // Which library the scan buttons target; empty string means every library.
+  const [library, setLibrary] = useState<string>("");
 
   const notify = (msg: string) => {
     setMessage(msg);
@@ -80,6 +83,8 @@ export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: strin
   const run = scan.data?.run ?? null;
   const byStatus = stats.data?.byStatus ?? {};
   const lastScan = stats.data?.lastScan ?? null;
+  const libraryId = library === "" ? undefined : Number(library);
+  const libraryName = sources.data?.sources.find((s) => String(s.id) === library)?.name ?? null;
 
   return (
     <div className="space-y-6">
@@ -103,11 +108,22 @@ export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: strin
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
+        <select
+          value={library}
+          onChange={(e) => setLibrary(e.target.value)}
+          className={BTN}
+          title="Limit scans to one library"
+        >
+          <option value="">All libraries</option>
+          {(sources.data?.sources ?? []).map((s) => (
+            <option key={s.id} value={String(s.id)}>{s.name}</option>
+          ))}
+        </select>
         <button onClick={() => sync.mutate()} disabled={sync.isPending || active} className={BTN}>
           {sync.isPending ? "Syncing..." : "Sync libraries"}
         </button>
         <button
-          onClick={() => startScan.mutate({ scope: "unchecked" })}
+          onClick={() => startScan.mutate({ scope: "unchecked", sourceId: libraryId, sourceName: libraryName ?? undefined })}
           disabled={active || startScan.isPending}
           className={BTN_PRIMARY}
         >
@@ -115,8 +131,9 @@ export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: strin
         </button>
         <button
           onClick={() => {
-            if (window.confirm("Re-check every file, including healthy ones? This takes much longer.")) {
-              startScan.mutate({ scope: "all" });
+            const where = libraryName ? " in " + libraryName : "";
+            if (window.confirm("Re-check every file" + where + ", including healthy ones? This takes much longer.")) {
+              startScan.mutate({ scope: "all", sourceId: libraryId, sourceName: libraryName ?? undefined });
             }
           }}
           disabled={active || startScan.isPending}
@@ -166,6 +183,7 @@ export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: strin
           </div>
           <dl className="mt-2 grid grid-cols-2 gap-x-6 gap-y-1 text-xs sm:grid-cols-3">
             {[
+              ["library", run.sourceName ?? "all"],
               ["scope", run.scope],
               ["progress", run.done + " / " + run.total],
               ["issues", String(run.issues)],

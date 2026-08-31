@@ -231,8 +231,14 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
   app.post("/api/scan", async (req) => {
     const b = (req.body ?? {}) as Record<string, unknown>;
     const scope = b.scope === "all" ? "all" : "unchecked";
-    const runId = await scans.start(scope);
-    return { runId, scope };
+    let sourceId: number | undefined;
+    if (b.sourceId !== undefined && b.sourceId !== null) {
+      sourceId = Number(b.sourceId);
+      if (!Number.isInteger(sourceId)) throw new ApiError(400, "sourceId must be an integer");
+      getSource(sourceId); // 404 when the source does not exist
+    }
+    const runId = await scans.start(scope, sourceId);
+    return { runId, scope, sourceId: sourceId ?? null };
   });
 
   app.post("/api/scan/cancel", async () => {
@@ -254,8 +260,9 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
     const lastScan =
       db
         .prepare(
-          "SELECT id, scope, state, total, done, issues, started_at AS startedAt, finished_at AS finishedAt" +
-            " FROM scan_runs ORDER BY id DESC LIMIT 1"
+          "SELECT r.id, r.scope, r.state, r.total, r.done, r.issues, r.started_at AS startedAt, r.finished_at AS finishedAt," +
+            " r.source_id AS sourceId, s.name AS sourceName" +
+            " FROM scan_runs r LEFT JOIN sources s ON s.id = r.source_id ORDER BY r.id DESC LIMIT 1"
         )
         .get() ?? null;
     return { total, byStatus, lastScan, activeScan: scans.isActive() };

@@ -91,7 +91,7 @@ CHECKARR_WEB_DIST, LOG_LEVEL.
     DELETE /api/sources/:id               delete source and its files
     POST   /api/sources/:id/test          verify URL + key (GET /api/v3/system/status)
     POST   /api/sync                      pull libraries from all enabled sources (or { sourceId })
-    POST   /api/scan                      { scope: unchecked|all }
+    POST   /api/scan                      { scope: unchecked|all, sourceId? }
     POST   /api/purge/corrupt             delete corrupt files at their *arr source + search replacements
     POST   /api/scan/cancel               stop the running scan
     GET    /api/scan/current              progress of the active/last run

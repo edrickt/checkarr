@@ -55,8 +55,9 @@ export class ScanManager {
     if (this.activeRunId === null) return null;
     const row = this.db
       .prepare(
-        "SELECT id, scope, state, total, done, issues, started_at AS startedAt, finished_at AS finishedAt" +
-          " FROM scan_runs WHERE id = ?"
+        "SELECT r.id, r.scope, r.state, r.total, r.done, r.issues, r.started_at AS startedAt, r.finished_at AS finishedAt," +
+          " r.source_id AS sourceId, s.name AS sourceName" +
+          " FROM scan_runs r LEFT JOIN sources s ON s.id = r.source_id WHERE r.id = ?"
       )
       .get(this.activeRunId) as Record<string, unknown> | undefined;
     if (!row) return null;
@@ -67,7 +68,7 @@ export class ScanManager {
     return row;
   }
 
-  async start(scope: "unchecked" | "all"): Promise<number> {
+  async start(scope: "unchecked" | "all", sourceId?: number): Promise<number> {
     if (this.running) throw new ApiError(409, "A scan is already running");
     this.cancelled = false;
     const settings = getSettings(this.db);
@@ -80,18 +81,27 @@ export class ScanManager {
     // Set-based item creation: one COUNT plus one INSERT..SELECT. The old
     // per-row INSERT loop held the event loop for seconds on large libraries,
     // which is exactly why pressing "scan" felt unresponsive.
-    const where = scope === "all" ? "" : " WHERE status = 'unchecked'";
-    const countRow = this.db.prepare("SELECT COUNT(*) AS n FROM media_files" + where).get() as { n: number };
+    const clauses: string[] = [];
+    const params: (string | number)[] = [];
+    if (scope === "unchecked") clauses.push("status = 'unchecked'");
+    if (sourceId !== undefined) {
+      clauses.push("source_id = ?");
+      params.push(sourceId);
+    }
+    const where = clauses.length > 0 ? " WHERE " + clauses.join(" AND ") : "";
+    const countRow = this.db.prepare("SELECT COUNT(*) AS n FROM media_files" + where).get(...params) as { n: number };
     const total = Number(countRow.n);
-    if (total === 0) throw new ApiError(400, "No files match the scan scope");
+    if (total === 0) {
+      throw new ApiError(400, "No files match the scan scope" + (sourceId !== undefined ? " for source " + sourceId : ""));
+    }
 
     const runRes = this.db
-      .prepare("INSERT INTO scan_runs (mode, scope, state, total, started_at) VALUES ('quick', ?, 'running', ?, ?)")
-      .run(scope, total, new Date().toISOString());
+      .prepare("INSERT INTO scan_runs (mode, scope, source_id, state, total, started_at) VALUES ('quick', ?, ?, 'running', ?, ?)")
+      .run(scope, sourceId ?? null, total, new Date().toISOString());
     const runId = Number(runRes.lastInsertRowid);
     this.db
       .prepare("INSERT INTO scan_items (run_id, media_file_id) SELECT ?, id FROM media_files" + where + " ORDER BY id")
-      .run(runId);
+      .run(runId, ...params);
 
     this.running = true;
     this.activeRunId = runId;

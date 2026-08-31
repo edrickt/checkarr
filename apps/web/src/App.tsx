@@ -75,7 +75,9 @@ export default function App() {
                   ? "Cancelling scan..."
                   : run.state === "starting"
                     ? "Starting scan..."
-                    : "Scan running"}
+                    : run.sourceName
+                      ? run.sourceName + " scan running"
+                      : "Scan running"}
               </span>
               {run.state !== "starting" && (
                 <span>
