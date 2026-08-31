@@ -102,6 +102,7 @@ export interface SyncResponse {
     name: string;
     ok: boolean;
     added?: number;
+    relinked?: number;
     updated?: number;
     removed?: number;
     total?: number;

@@ -11,6 +11,10 @@ export interface SyncEntry {
 
 export interface SyncResult {
   added: number;
+  /** Same movie/episode whose file landed under a new path (replacement
+   *  download with different release tags, upgrade, rename): row kept, path
+   *  swapped, verdict reset. */
+  relinked: number;
   updated: number;
   removed: number;
   total: number;
@@ -180,7 +184,10 @@ export async function testSource(
 
 /**
  * Pull the library from one source and upsert into media_files.
- * Existing verdicts are never reset; rows whose path no longer appears are removed.
+ * Identity is (source_id, path): same-path rows keep their verdicts. When the
+ * *arr reports a tracked movie/episode under a new path, the row is relinked
+ * to the new file and reset to unchecked (the old verdict described bytes
+ * that are gone). Rows whose path no longer appears are removed.
  */
 export async function syncSource(db: DB, source: SourceCore): Promise<SyncResult> {
   const entries =
@@ -198,7 +205,26 @@ export async function syncSource(db: DB, source: SourceCore): Promise<SyncResult
       " external_id = excluded.external_id, title = excluded.title, subtitle = excluded.subtitle," +
       " size_bytes = excluded.size_bytes, quality = excluded.quality, updated_at = excluded.updated_at"
   );
+  // The *arr reports a movie/episode we already track under a different path:
+  // a replacement download (Delete & re-search) lands in the same folder with
+  // different release tags, a manual upgrade or a rename. Relink the row so
+  // its id (and scan history) survives, and reset the verdict - the old
+  // findings describe bytes that no longer exist.
+  const byExternalStmt = db.prepare(
+    "SELECT id FROM media_files WHERE source_id = ? AND kind = ? AND external_id = ? ORDER BY id LIMIT 1"
+  );
+  const relinkStmt = db.prepare(
+    "UPDATE media_files SET path = ?, external_id = ?, title = ?, subtitle = ?, size_bytes = ?, quality = ?," +
+      " status = 'unchecked', error_detail = NULL, duration_s = NULL, container = NULL, video_codec = NULL," +
+      " audio_codec = NULL, probe_json = NULL, checked_at = NULL, updated_at = ?" +
+      " WHERE id = ? AND source_id = ? AND kind = ? AND external_id = ?"
+  );
+  const insertStmt = db.prepare(
+    "INSERT INTO media_files (source_id, kind, external_id, title, subtitle, path, size_bytes, quality)" +
+      " VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+  );
   let added = 0;
+  let relinked = 0;
   let updated = 0;
 
   db.exec("CREATE TEMP TABLE IF NOT EXISTS sync_paths (path TEXT PRIMARY KEY)");
@@ -209,9 +235,31 @@ export async function syncSource(db: DB, source: SourceCore): Promise<SyncResult
   try {
     for (const e of entries) {
       const existing = existsStmt.get(source.id, e.path);
-      upsertStmt.run(source.id, kind, e.externalId, e.title, e.subtitle, e.path, e.sizeBytes, e.quality);
-      if (existing) updated++;
-      else added++;
+      if (existing) {
+        upsertStmt.run(source.id, kind, e.externalId, e.title, e.subtitle, e.path, e.sizeBytes, e.quality);
+        updated++;
+      } else {
+        const twin = byExternalStmt.get(source.id, kind, e.externalId) as { id: number } | undefined;
+        if (twin) {
+          relinkStmt.run(
+            e.path,
+            e.externalId,
+            e.title,
+            e.subtitle,
+            e.sizeBytes,
+            e.quality,
+            now,
+            twin.id,
+            source.id,
+            kind,
+            e.externalId
+          );
+          relinked++;
+        } else {
+          insertStmt.run(source.id, kind, e.externalId, e.title, e.subtitle, e.path, e.sizeBytes, e.quality);
+          added++;
+        }
+      }
       insPath.run(e.path);
     }
     const delInfo = db
@@ -223,7 +271,7 @@ export async function syncSource(db: DB, source: SourceCore): Promise<SyncResult
       now,
       source.id
     );
-    return { added, updated, removed, total: entries.length };
+    return { added, relinked, updated, removed, total: entries.length };
   } catch (err) {
     try {
       db.exec("ROLLBACK");

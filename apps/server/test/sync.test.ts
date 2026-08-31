@@ -133,6 +133,7 @@ describe("sync", () => {
     const second = await syncSource(db, src);
     expect(second.added).toBe(0);
     expect(second.updated).toBe(1);
+    expect(second.relinked).toBe(0);
     expect(second.removed).toBe(0);
   });
 
@@ -174,6 +175,99 @@ describe("sync", () => {
     await syncSource(db, src);
     const row = db.prepare("SELECT status FROM media_files WHERE id = 1").get() as { status: string };
     expect(row.status).toBe("corrupt");
+  });
+
+  it("relinks a purged row when the replacement download lands under a different filename", async () => {
+    const db = makeDb();
+    const src = insertSource(db, "radarr", url, "good-key");
+    await syncSource(db, src);
+    // Delete & re-search: the row is purged and the file is gone. Radarr then
+    // re-downloads into the same movie folder, but the new release carries
+    // different tags, so the filename - and with it the tracked path - differs.
+    db.prepare(
+      "UPDATE media_files SET status = 'purged', error_detail = 'old verdict', checked_at = '2026-01-01T00:00:00.000Z', probe_json = '{}'"
+    ).run();
+    const original = MOVIES[0].movieFile;
+    MOVIES[0].movieFile = {
+      path: "/movies/Braveheart (1995) [WEBDL-1080p][PROPER][repack].mkv",
+      size: 4242,
+      quality: { quality: { name: "WEBDL-1080p" } }
+    };
+    try {
+      const r = await syncSource(db, src);
+      expect(r.added).toBe(0);
+      expect(r.relinked).toBe(1);
+      expect(r.updated).toBe(0);
+      expect(r.removed).toBe(0);
+      const row = db
+        .prepare(
+          "SELECT id, path, status, size_bytes, quality, error_detail, checked_at, probe_json FROM media_files"
+        )
+        .get() as Record<string, unknown>;
+      expect(row.id).toBe(1); // the row survives the swap instead of drop + re-add
+      expect(row.path).toBe("/movies/Braveheart (1995) [WEBDL-1080p][PROPER][repack].mkv");
+      expect(row.status).toBe("unchecked"); // fresh file, old verdict voided
+      expect(row.size_bytes).toBe(4242);
+      expect(row.error_detail).toBeNull();
+      expect(row.checked_at).toBeNull();
+      expect(row.probe_json).toBeNull();
+    } finally {
+      MOVIES[0].movieFile = original;
+    }
+  });
+
+  it("relinks episode rows too (sonarr)", async () => {
+    const db = makeDb();
+    const src = insertSource(db, "sonarr", url, "good-key");
+    await syncSource(db, src);
+    db.prepare("UPDATE media_files SET status = 'missing' WHERE external_id = '11'").run();
+    const original = EPISODES[0].episodeFile;
+    EPISODES[0].episodeFile = {
+      path: "/tv/beta/S01E02 - Pilot [HDTV-720p][x265][repack].mkv",
+      size: 1111,
+      quality: { quality: { name: "HDTV-720p" } }
+    };
+    try {
+      const r = await syncSource(db, src);
+      expect(r.relinked).toBe(1);
+      expect(r.added).toBe(0);
+      expect(r.removed).toBe(0);
+      const row = db.prepare("SELECT path, status FROM media_files WHERE external_id = '11'").get() as {
+        path: string;
+        status: string;
+      };
+      expect(row.path).toBe("/tv/beta/S01E02 - Pilot [HDTV-720p][x265][repack].mkv");
+      expect(row.status).toBe("unchecked");
+    } finally {
+      EPISODES[0].episodeFile = original;
+    }
+  });
+
+  it("does not relink across external ids: new id + new path means add and remove", async () => {
+    const db = makeDb();
+    const src = insertSource(db, "radarr", url, "good-key");
+    await syncSource(db, src);
+    const original = { id: MOVIES[0].id, movieFile: MOVIES[0].movieFile };
+    MOVIES[0].id = 42;
+    MOVIES[0].movieFile = {
+      path: "/movies/alpha-remux.mkv",
+      size: 5,
+      quality: { quality: { name: "Blu-ray-2160p" } }
+    };
+    try {
+      const r = await syncSource(db, src);
+      expect(r.relinked).toBe(0);
+      expect(r.added).toBe(1);
+      expect(r.removed).toBe(1);
+      const rows = db.prepare("SELECT external_id, path FROM media_files").all() as {
+        external_id: string;
+        path: string;
+      }[];
+      expect(rows).toEqual([{ external_id: "42", path: "/movies/alpha-remux.mkv" }]);
+    } finally {
+      MOVIES[0].id = original.id;
+      MOVIES[0].movieFile = original.movieFile;
+    }
   });
 
   it("surfaces auth failures with a clear message", async () => {

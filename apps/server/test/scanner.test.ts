@@ -198,6 +198,51 @@ describe("ScanManager", () => {
     expect(statuses.find((s) => s.path === "/movies/b.mkv").status).toBe("healthy");
   });
 
+  it("a purged row whose replacement is not on disk yet stays purged, not missing", async () => {
+    const db = makeDb();
+    const fileId = seedFile(db);
+    db.prepare("UPDATE media_files SET status = 'purged' WHERE id = ?").run(fileId);
+    const m = new ScanManager(db);
+    checkMock.mockResolvedValue({
+      status: "missing",
+      detail: "File not found: /movies/a.mkv",
+      probe: null
+    });
+    const runId = await m.start("purged");
+    await settle(m);
+    const run = db.prepare("SELECT state, total, done, issues FROM scan_runs WHERE id = ?").get(runId) as any;
+    expect(run.state).toBe("done");
+    expect(run.done).toBe(1);
+    expect(run.issues).toBe(1); // unresolved: the replacement has not landed
+    expect((db.prepare("SELECT status FROM media_files WHERE id = ?").get(fileId) as any).status).toBe(
+      "purged"
+    );
+  });
+
+  it("discards the verdict when sync relinks the row to a new download mid-check", async () => {
+    const db = makeDb();
+    const fileId = seedFile(db);
+    const m = new ScanManager(db);
+    checkMock.mockImplementation(async () => {
+      // sync relinks the row to the replacement (new filename, fresh status)
+      // while the check against the old path is still in flight
+      db.prepare(
+        "UPDATE media_files SET path = '/movies/Braveheart [NEW-TAGS].mkv', status = 'unchecked' WHERE id = ?"
+      ).run(fileId);
+      return { status: "missing", detail: "File not found", probe: null };
+    });
+    const runId = await m.start("unchecked");
+    await settle(m);
+    const run = db.prepare("SELECT state, total, done FROM scan_runs WHERE id = ?").get(runId) as any;
+    expect(run.state).toBe("done");
+    expect(run.done).toBe(0); // the stale verdict did not count as progress
+    const item = db.prepare("SELECT state FROM scan_items WHERE run_id = ?").get(runId) as any;
+    expect(item.state).toBe("skipped");
+    const row = db.prepare("SELECT path, status FROM media_files WHERE id = ?").get(fileId) as any;
+    expect(row.path).toBe("/movies/Braveheart [NEW-TAGS].mkv");
+    expect(row.status).toBe("unchecked"); // no 'missing' from the old path landed
+  });
+
   it("cancel() while idle is a no-op that preserves the last run's state", async () => {
     const db = makeDb();
     seedFile(db);

@@ -3,7 +3,7 @@ import fs from "node:fs";
 import { getSettings, saveSettings, type AppSettings, type PathMapping } from "./settings.js";
 import { binariesUsable, resolveBinaries } from "./services/ffmpeg.js";
 import { checkMediaFile, resolveLocalPath } from "./services/checker.js";
-import { persistOutcome, ScanManager, type ScanScope } from "./services/scanner.js";
+import { persistCheckOutcome, ScanManager, type ScanScope } from "./services/scanner.js";
 import { syncSource, testSource, type SourceCore } from "./services/sync.js";
 import { purgeFiles } from "./services/purge.js";
 import { ApiError } from "./lib/api-error.js";
@@ -480,16 +480,32 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
     if (scans.isActive()) throw new ApiError(409, "A scan is running - wait for it to finish or cancel it");
     const id = Number((req.params as { id: string }).id);
     if (!Number.isInteger(id)) throw new ApiError(400, "invalid file id");
-    const file = db.prepare("SELECT id, path FROM media_files WHERE id = ?").get(id) as
-      { id: number; path: string } | undefined;
+    const file = db.prepare("SELECT id, path, status FROM media_files WHERE id = ?").get(id) as
+      { id: number; path: string; status: string } | undefined;
     if (!file) throw new ApiError(404, "file not found");
     const settings = getSettings(db);
     const binaries = resolveBinaries(settings);
     const problem = await binariesUsable(binaries);
     if (problem) throw new ApiError(400, problem);
     const outcome = await checkMediaFile(file.path, { binaries, mappings: settings.pathMappings });
-    persistOutcome(db, file.id, outcome);
-    return { id: file.id, status: outcome.status, detail: outcome.detail };
+    const verdict = persistCheckOutcome(db, file, outcome);
+    if (verdict.wrote) return { id: file.id, status: verdict.status, detail: outcome.detail };
+    if (verdict.reason === "purged-awaiting-replacement") {
+      return {
+        id: file.id,
+        status: "purged",
+        detail: "replacement not on disk yet - kept purged; sync to pick up the new download"
+      };
+    }
+    // The row was relinked to a new download (or removed) while the check ran.
+    const cur = db.prepare("SELECT id, status FROM media_files WHERE id = ?").get(file.id) as
+      { id: number; status: string } | undefined;
+    if (!cur) throw new ApiError(404, "file not found");
+    return {
+      id: cur.id,
+      status: cur.status,
+      detail: "the *arr replaced this file during the recheck - verdict discarded, run it again"
+    };
   });
 
   // Range-aware streaming for the manual in-browser player.

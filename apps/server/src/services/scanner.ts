@@ -34,6 +34,36 @@ export function persistOutcome(db: DB, fileId: number, outcome: CheckOutcome): v
   );
 }
 
+export type PersistVerdict =
+  | { wrote: true; status: CheckOutcome["status"] }
+  | { wrote: false; reason: "row-changed" | "purged-awaiting-replacement" };
+
+/**
+ * Write a finished check back to its row, guarded by the two rules a disk
+ * verdict must satisfy before it may land:
+ * - A sync can relink the row to a replacement download (or remove it) while
+ *   the check runs; a verdict computed from the old path must not overwrite
+ *   the new file's state, so it is discarded when the path has moved.
+ * - A purged row ("Delete & re-search") is expected to have no file on disk
+ *   until the replacement lands: a re-check that finds it gone keeps the row
+ *   purged instead of demoting it to 'missing'. Sync swaps in the new
+ *   download (even under a different filename) or drops the row.
+ */
+export function persistCheckOutcome(
+  db: DB,
+  file: { id: number; path: string; status: string },
+  outcome: CheckOutcome
+): PersistVerdict {
+  const cur = db.prepare("SELECT path FROM media_files WHERE id = ?").get(file.id) as
+    { path: string } | undefined;
+  if (!cur || cur.path !== file.path) return { wrote: false, reason: "row-changed" };
+  if (file.status === "purged" && outcome.status === "missing") {
+    return { wrote: false, reason: "purged-awaiting-replacement" };
+  }
+  persistOutcome(db, file.id, outcome);
+  return { wrote: true, status: outcome.status };
+}
+
 export function resumeInterruptedScans(db: DB): void {
   db.prepare("UPDATE scan_items SET state = 'pending' WHERE state = 'running'").run();
   db.prepare("UPDATE scan_runs SET state = 'cancelled', finished_at = ? WHERE state = 'running'").run(
@@ -197,8 +227,8 @@ export class ScanManager {
       if (!item) return;
       try {
         const file = this.db
-          .prepare("SELECT id, path FROM media_files WHERE id = ?")
-          .get(item.media_file_id) as { id: number; path: string } | undefined;
+          .prepare("SELECT id, path, status FROM media_files WHERE id = ?")
+          .get(item.media_file_id) as { id: number; path: string; status: string } | undefined;
         if (!file) {
           this.db.prepare("UPDATE scan_items SET state = 'skipped' WHERE id = ?").run(item.id);
           continue;
@@ -227,14 +257,24 @@ export class ScanManager {
           this.db.prepare("UPDATE scan_items SET state = 'pending' WHERE id = ?").run(item.id);
           return;
         }
-        persistOutcome(this.db, file.id, outcome);
+        const verdict = persistCheckOutcome(this.db, file, outcome);
+        if (!verdict.wrote && verdict.reason === "row-changed") {
+          // Sync relinked the row to a replacement download (or removed it)
+          // while the check ran: the verdict describes the old path, so drop
+          // it and leave the fresh file to the next unchecked scan.
+          this.db.prepare("UPDATE scan_items SET state = 'skipped' WHERE id = ?").run(item.id);
+          continue;
+        }
         const done = this.db.prepare("UPDATE scan_items SET state = 'done' WHERE id = ?").run(item.id);
         if (done.changes > 0) {
           // The item can cascade away when sync deletes its media_files row
-          // mid-scan; only count progress for work that actually landed.
+          // mid-scan; only count progress for work that actually landed. A
+          // purged row kept purged did real work but is not resolved: count
+          // the issue so the run reports replacements that have not landed.
+          const healthy = verdict.wrote && verdict.status === "healthy";
           this.db
             .prepare("UPDATE scan_runs SET done = done + 1, issues = issues + ? WHERE id = ?")
-            .run(outcome.status === "healthy" ? 0 : 1, runId);
+            .run(healthy ? 0 : 1, runId);
         }
       } catch (err) {
         // DB or infrastructure failure: release the item and stop the whole

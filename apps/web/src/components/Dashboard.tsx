@@ -65,7 +65,9 @@ export default function Dashboard({
           ? r.name +
             ": +" +
             (r.added ?? 0) +
-            " new, " +
+            " new" +
+            ((r.relinked ?? 0) > 0 ? ", " + r.relinked + " relinked to new downloads" : "") +
+            ", " +
             (r.updated ?? 0) +
             " updated, -" +
             (r.removed ?? 0) +

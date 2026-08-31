@@ -188,6 +188,27 @@ describe("validation", () => {
   });
 });
 
+describe("recheck", () => {
+  it("keeps a purged row purged when the replacement is not on disk yet", async () => {
+    const before = (db.prepare("SELECT status FROM media_files WHERE id = ?").get(fileId) as any).status;
+    db.prepare("UPDATE media_files SET status = 'purged', path = ? WHERE id = ?").run(
+      path.join(dir, "deleted-by-research.mkv"),
+      fileId
+    );
+    try {
+      const r = await app.inject({ method: "POST", url: "/api/files/" + fileId + "/recheck" });
+      expect(r.statusCode).toBe(200);
+      expect(r.json()).toMatchObject({ id: fileId, status: "purged" });
+    } finally {
+      db.prepare("UPDATE media_files SET status = ?, path = ? WHERE id = ?").run(
+        before,
+        path.join(dir, "media.mp4"),
+        fileId
+      );
+    }
+  });
+});
+
 describe("masked api keys", () => {
   it("masks keys in list responses", async () => {
     const r = await app.inject({ method: "GET", url: "/api/sources" });
