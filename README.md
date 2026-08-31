@@ -10,8 +10,9 @@ Anything that fails shows up flagged on the dashboard.
 Browsers can only decode a handful of codecs, so Checkarr uses ffmpeg as the "player":
 ffprobe parses the container, then ffmpeg decodes the video and audio streams into the null muxer.
 
-- **Start check** - decode the first 10 seconds of every stream ("open it and play it")
-- **Middle check** - input-seek to 50% of the duration and decode 10 seconds ("scrub to the middle")
+- **Start check** - decode the first second of every stream ("open it and play it")
+- **Middle check** - input-seek to 50% of the duration and decode a second ("does it keep playing?")
+- **End check** - input-seek to 99% of the duration and decode a second ("does it finish?")
 
 Verdicts:
 
@@ -109,7 +110,7 @@ CHECKARR_WEB_DIST, LOG_LEVEL.
 - API keys sit in the local database as plaintext.
 - A scan checks every file independently; killing the server mid-scan leaves remaining files
   unchecked, and the next scan (scope "unchecked") picks them up.
-- Files with no known duration never come back healthy: the middle check can't run, so
+- Files with no known duration never come back healthy: the middle and end checks can't run, so
   suspect is the best possible verdict.
 
 ## Development

@@ -366,9 +366,9 @@ export default function Dashboard({
       <div className="border-t border-neutral-200 pt-4 text-sm text-neutral-500">
         <p className="font-medium text-neutral-700">How checks work</p>
         <p className="mt-1">
-          Every file is probed with ffprobe, then decoded with ffmpeg: the first 10 seconds, and 10 seconds
-          from the middle (50% of duration). Files that fail to decode are marked corrupt; files with
-          recoverable errors or no known duration are marked suspect.
+          Every file is probed with ffprobe, then decoded with ffmpeg: one second at the start, one second
+          from the middle (50% of duration), and one second from 99% of the way to the end. Files that fail to
+          decode are marked corrupt; files with recoverable errors or no known duration are marked suspect.
         </p>
       </div>
     </div>

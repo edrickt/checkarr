@@ -121,8 +121,11 @@ async function runDecodeStep(
 const RANK: Record<StepVerdict, number> = { pass: 0, suspect: 1, fail: 2 };
 
 /**
- * Full per-file check: accessibility, container probe, then decode tests
- * (first 10 seconds + 10 seconds from the middle, 50% of duration).
+ * Per-file check: accessibility, container probe, then three short decode
+ * probes - the first second, a second from the middle (50% of duration), and
+ * a second from 99% of the way to the end. "Does it play, does it keep
+ * playing, does it finish" - the end probe catches truncation and tail
+ * damage that a start/middle check cannot see, while keeping scans fast.
  */
 export async function checkMediaFile(originalPath: string, ctx: CheckContext): Promise<CheckOutcome> {
   throwIfCancelled(ctx);
@@ -174,14 +177,14 @@ export async function checkMediaFile(originalPath: string, ctx: CheckContext): P
   }
   const info = probe.info;
 
-  // 3. Decode checks: the first 10 seconds, then 10 seconds from the middle
-  // (50% of duration) when the duration is known.
+  // 3. Decode checks: one second at the start, the middle, and near the end
+  // (99% of duration) when the duration is known.
   const steps: Step[] = [];
   const start = await runDecodeStep(
     ctx.binaries.ffmpeg,
     localPath,
-    "start (first 10s)",
-    { seconds: 10, threads: ctx.threads },
+    "start (first 1s)",
+    { seconds: 1, threads: ctx.threads },
     TIMEOUTS.segmentMs,
     ctx.signal
   );
@@ -194,15 +197,33 @@ export async function checkMediaFile(originalPath: string, ctx: CheckContext): P
     const midStep = await runDecodeStep(
       ctx.binaries.ffmpeg,
       localPath,
-      "middle (from " + mid + "s, 10s)",
-      { seconds: 10, seekS: mid, threads: ctx.threads },
+      "middle (from " + mid + "s, 1s)",
+      { seconds: 1, seekS: mid, threads: ctx.threads },
       TIMEOUTS.segmentMs,
       ctx.signal
     );
     throwIfCancelled(ctx);
     steps.push(midStep);
+    if (midStep.verdict !== "fail") {
+      throwIfCancelled(ctx);
+      const endS = Math.floor(dur * 0.99);
+      const endStep = await runDecodeStep(
+        ctx.binaries.ffmpeg,
+        localPath,
+        "end (from " + endS + "s, 1s)",
+        { seconds: 1, seekS: endS, threads: ctx.threads },
+        TIMEOUTS.segmentMs,
+        ctx.signal
+      );
+      throwIfCancelled(ctx);
+      steps.push(endStep);
+    }
   } else if (start.verdict !== "fail" && (dur === null || dur <= 0)) {
-    steps.push({ name: "middle", verdict: "suspect", detail: "middle check skipped: duration unknown" });
+    steps.push({
+      name: "middle/end",
+      verdict: "suspect",
+      detail: "middle and end checks skipped: duration unknown"
+    });
   }
 
   // The file can also vanish between the stat() and a decode step: decode

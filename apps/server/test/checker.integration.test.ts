@@ -69,6 +69,14 @@ describe.skipIf(!FF)("checker integration (real ffmpeg)", () => {
     const buf = fs.readFileSync(midPath);
     buf.fill(0, Math.floor(buf.length * 0.45), Math.floor(buf.length * 0.55));
     fs.writeFileSync(midPath, buf);
+
+    // tail damage: last 5% zeroed -> start and middle decode fine, only the
+    // end check sees it. This is exactly what the end check exists for.
+    const tailPath = path.join(dir, "tail-damage.mp4");
+    await encode([...base, "-y", ...av, "-movflags", "+faststart", tailPath]);
+    const tbuf = fs.readFileSync(tailPath);
+    tbuf.fill(0, Math.floor(tbuf.length * 0.95));
+    fs.writeFileSync(tailPath, tbuf);
   }, 240_000);
 
   it("marks a healthy file healthy", async () => {
@@ -88,6 +96,12 @@ describe.skipIf(!FF)("checker integration (real ffmpeg)", () => {
     const r = await checkMediaFile(path.join(dir, "middle-damage.mp4"), { binaries, mappings: [] });
     expect(["corrupt", "suspect"]).toContain(r.status);
     expect(r.detail).toBeTruthy();
+  });
+
+  it("catches damage near the end via the end check", async () => {
+    const r = await checkMediaFile(path.join(dir, "tail-damage.mp4"), { binaries, mappings: [] });
+    expect(["corrupt", "suspect"]).toContain(r.status);
+    expect(r.detail).toContain("end (from");
   });
 
   it("reports missing files as missing", async () => {
