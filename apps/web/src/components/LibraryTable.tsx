@@ -40,6 +40,8 @@ export default function LibraryTable({
   }, [status, sourceId]);
 
   const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources });
+  // Poll gently while a scan is running so verdicts stream into the table.
+  const scanState = useQuery({ queryKey: ["scan"], queryFn: api.currentScan, refetchInterval: 5000 });
   const list = useQuery({
     queryKey: ["files", status, sourceId, q, page],
     queryFn: () =>
@@ -51,7 +53,8 @@ export default function LibraryTable({
         pageSize,
         sort: "id",
         dir: "desc"
-      })
+      }),
+    refetchInterval: scanState.data?.active ? 5000 : false
   });
 
   const recheck = useMutation({
@@ -76,6 +79,12 @@ export default function LibraryTable({
   const total = list.data?.total ?? 0;
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
 
+  useEffect(() => {
+    // Deleting the last row of the last page leaves the page pointer past
+    // the end: clamp instead of showing a permanently empty table.
+    if (page > pageCount) setPage(pageCount);
+  }, [page, pageCount]);
+
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -86,6 +95,7 @@ export default function LibraryTable({
           className={INPUT + " w-64"}
         />
         <select
+          aria-label="Filter by status"
           value={status}
           onChange={(e) => setStatus(e.target.value)}
           className={INPUT + " capitalize"}
@@ -95,6 +105,7 @@ export default function LibraryTable({
           ))}
         </select>
         <select
+          aria-label="Filter by source"
           value={sourceId}
           onChange={(e) => setSourceId(e.target.value)}
           className={INPUT}
@@ -172,7 +183,11 @@ export default function LibraryTable({
           {items.length === 0 && (
             <tr>
               <td colSpan={8} className="px-3 py-8 text-center text-sm text-neutral-400">
-                {list.isLoading ? "Loading..." : "No files match. Sync a library or adjust filters."}
+                {list.isError
+                  ? "Could not load the library: " + ((list.error as Error)?.message ?? "unknown error")
+                  : list.isLoading
+                    ? "Loading..."
+                    : "No files match. Sync a library or adjust filters."}
               </td>
             </tr>
           )}

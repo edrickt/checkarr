@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type SourceInput } from "../api";
 import type { PathMapping, Source } from "../types";
@@ -33,9 +33,11 @@ export default function SettingsPage() {
     }
   }, [settings.data]);
 
+  const notifyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const notify = (msg: string) => {
     setMessage(msg);
-    setTimeout(() => setMessage(null), 6000);
+    if (notifyTimer.current) clearTimeout(notifyTimer.current);
+    notifyTimer.current = setTimeout(() => setMessage(null), 6000);
   };
 
   const invalidate = () => {
@@ -70,7 +72,7 @@ export default function SettingsPage() {
 
   const updateSource = useMutation({
     mutationFn: (s: Source) =>
-      api.updateSource(s.id, { type: s.type, name: s.name, baseUrl: s.baseUrl, apiKey: s.apiKey }),
+      api.updateSource(s.id, { name: s.name, baseUrl: s.baseUrl, apiKey: s.apiKey }),
     onSuccess: () => {
       notify("Source updated");
       setEditing(null);
@@ -122,6 +124,12 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-8">
+      {settings.isError && (
+        <div className="border border-red-300 px-4 py-3 text-sm text-red-700">
+          Could not load settings: {(settings.error as Error)?.message ?? "unknown error"} - saving is disabled so your
+          real configuration is not overwritten.
+        </div>
+      )}
       {message && <div className="border border-neutral-200 px-4 py-3 text-sm text-neutral-600">{message}</div>}
 
       <section>
@@ -132,14 +140,9 @@ export default function SettingsPage() {
               {editing && editing.id === s.id ? (
                 <div className="space-y-2">
                   <div className="flex flex-wrap gap-2">
-                    <select
-                      value={editing.type}
-                      onChange={(e) => setEditing({ ...editing, type: e.target.value as Source["type"] })}
-                      className={INPUT + " max-w-xs"}
-                    >
-                      <option value="radarr">radarr</option>
-                      <option value="sonarr">sonarr</option>
-                    </select>
+                    <span className={BTN + " cursor-default"} title="The source type is fixed at creation - delete and re-add to change it">
+                      {editing.type}
+                    </span>
                     <input value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} placeholder="Name" className={INPUT + " max-w-xs"} />
                   </div>
                   <input value={editing.baseUrl} onChange={(e) => setEditing({ ...editing, baseUrl: e.target.value })} placeholder="http://localhost:7878" className={INPUT} />
@@ -246,7 +249,12 @@ export default function SettingsPage() {
             <input value={ffprobePath} onChange={(e) => setFfprobePath(e.target.value)} placeholder="bundled binary" className={INPUT + " mt-1"} />
           </label>
         </div>
-        <button onClick={() => save.mutate()} disabled={save.isPending} className={BTN_PRIMARY + " mt-3"}>
+        <button
+          onClick={() => save.mutate()}
+          disabled={save.isPending || settings.isLoading || settings.isError}
+          title={settings.isError ? "Settings failed to load - fixing a stale form would overwrite your config" : undefined}
+          className={BTN_PRIMARY + " mt-3"}
+        >
           {save.isPending ? "Saving..." : "Save settings"}
         </button>
       </section>
@@ -286,7 +294,11 @@ export default function SettingsPage() {
           Add mapping
         </button>
         <div className="mt-3">
-          <button onClick={() => save.mutate()} disabled={save.isPending} className={BTN_PRIMARY}>
+          <button
+            onClick={() => save.mutate()}
+            disabled={save.isPending || settings.isLoading || settings.isError}
+            className={BTN_PRIMARY}
+          >
             Save settings
           </button>
         </div>

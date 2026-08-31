@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type MediaFileDetail } from "../api";
 import type { MediaFile } from "../types";
@@ -13,7 +13,15 @@ export default function DetailModal({ file, onClose }: { file: MediaFile; onClos
   const videoRef = useRef<HTMLVideoElement>(null);
 
   const detail = useQuery({ queryKey: ["file", file.id], queryFn: () => api.file(file.id) });
-  const f: MediaFileDetail = detail.data?.file ?? (file as unknown as MediaFileDetail);
+  const f: MediaFileDetail = detail.data?.file ?? { ...file, probe: null };
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
 
   const recheck = useMutation({
     mutationFn: () => api.recheck(file.id),
@@ -30,7 +38,7 @@ export default function DetailModal({ file, onClose }: { file: MediaFile; onClos
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-950/40 p-4" onClick={onClose}>
+    <div role="dialog" aria-modal="true" aria-label={f.title} className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-950/40 p-4" onClick={onClose}>
       <div
         className="max-h-[90vh] w-full max-w-3xl overflow-y-auto border border-neutral-200 bg-white p-4"
         onClick={(e) => e.stopPropagation()}

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
 import { useCancelScan } from "./useScan";
@@ -41,6 +41,16 @@ export default function App() {
 
   const run = scan.data?.run ?? null;
   const active = scan.data?.active ?? false;
+
+  // Library rows are only invalidated at scan start; push a refresh through
+  // the moment a scan settles so the table reflects the new verdicts.
+  const wasActive = useRef(false);
+  useEffect(() => {
+    if (wasActive.current && !active) {
+      queryClient.invalidateQueries({ queryKey: ["files"] });
+    }
+    wasActive.current = active;
+  }, [active, queryClient]);
   const pct = run && run.total > 0 ? Math.min(100, Math.round((run.done / run.total) * 100)) : 0;
 
   return (

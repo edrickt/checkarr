@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
 import { formatWhen } from "../utils";
@@ -35,9 +35,11 @@ export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: strin
   const [library, setLibrary] = useState<string>("");
   const [purgeOpen, setPurgeOpen] = useState(false);
 
+  const notifyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const notify = (msg: string) => {
     setMessage(msg);
-    setTimeout(() => setMessage(null), 6000);
+    if (notifyTimer.current) clearTimeout(notifyTimer.current);
+    notifyTimer.current = setTimeout(() => setMessage(null), 6000);
   };
 
   const invalidateAll = () => {
@@ -95,6 +97,21 @@ export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: strin
 
   return (
     <div className="space-y-6">
+      {settings.isError && (
+        <div className="border border-red-300 px-4 py-3 text-sm text-red-700">
+          Could not load settings: {(settings.error as Error)?.message ?? "unknown error"} - scan buttons may be wrong until it loads.
+        </div>
+      )}
+      {stats.isError && (
+        <div className="border border-red-300 px-4 py-3 text-sm text-red-700">
+          Could not load stats: {(stats.error as Error)?.message ?? "unknown error"} - the cards below are not live.
+        </div>
+      )}
+      {sources.isError && (
+        <div className="border border-red-300 px-4 py-3 text-sm text-red-700">
+          Could not load sources: {(sources.error as Error)?.message ?? "unknown error"}
+        </div>
+      )}
       {!settings.isLoading && settings.data && !settings.data.ffmpegAvailable && (
         <div className="border border-red-300 px-4 py-3 text-sm text-red-700">
           ffmpeg is not available: {settings.data.ffmpegError} - scans will not run. Configure a path in Settings.
@@ -152,6 +169,8 @@ export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: strin
           <div className="relative">
             <button
               onClick={() => setPurgeOpen((o) => !o)}
+              aria-haspopup="menu"
+              aria-expanded={purgeOpen}
               disabled={purge.isPending || active}
               className={BTN + " hover:border-red-600 hover:text-red-600"}
               title={libraryName ? "Delete files at " + libraryName + " and queue searches for replacements" : "Delete files at their *arr source and queue searches for replacements"}
