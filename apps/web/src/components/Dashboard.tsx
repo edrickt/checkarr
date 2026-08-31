@@ -33,6 +33,7 @@ export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: strin
   const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources });
   // Which library the scan buttons target; empty string means every library.
   const [library, setLibrary] = useState<string>("");
+  const [purgeOpen, setPurgeOpen] = useState(false);
 
   const notify = (msg: string) => {
     setMessage(msg);
@@ -142,62 +143,76 @@ export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: strin
         >
           {scanButtonLabel(startScan, "all", "Re-scan everything")}
         </button>
-        {(byStatus.corrupt ?? 0) > 0 && (
-          <button
-            onClick={() => {
-              const n = byStatus.corrupt ?? 0;
-              if (
-                window.confirm(
-                  "Delete " + n + " corrupt file(s) from Radarr/Sonarr and search for replacements?\n\nThe files are removed from disk. This cannot be undone."
-                )
-              ) {
-                purge.mutate("corrupt");
-              }
-            }}
-            disabled={purge.isPending || active}
-            className={BTN + " hover:border-red-600 hover:text-red-600"}
-            title="Deletes the corrupt files at the *arr source and queues searches for replacements"
-          >
-            {purge.isPending && purge.variables === "corrupt" ? "Purging..." : "Delete & re-search corrupt (" + (byStatus.corrupt ?? 0) + ")"}
-          </button>
-        )}
-        {(byStatus.suspect ?? 0) > 0 && (
-          <button
-            onClick={() => {
-              const n = byStatus.suspect ?? 0;
-              if (
-                window.confirm(
-                  "Delete " + n + " suspect file(s) from Radarr/Sonarr and search for replacements?\n\nSuspect files may still play (recoverable errors were reported). The files are removed from disk. This cannot be undone."
-                )
-              ) {
-                purge.mutate("suspect");
-              }
-            }}
-            disabled={purge.isPending || active}
-            className={BTN + " hover:border-red-600 hover:text-red-600"}
-            title="Deletes the suspect files at the *arr source and queues searches for replacements"
-          >
-            {purge.isPending && purge.variables === "suspect" ? "Purging..." : "Delete & re-search suspect (" + (byStatus.suspect ?? 0) + ")"}
-          </button>
-        )}
         {(stats.data?.total ?? 0) > 0 && (
-          <button
-            onClick={() => {
-              const n = stats.data?.total ?? 0;
-              if (
-                window.confirm(
-                  "Delete ALL " + n + " tracked file(s), including healthy ones, from Radarr/Sonarr and search for replacements?\n\nEvery file is removed from disk. This cannot be undone."
-                )
-              ) {
-                purge.mutate("all");
-              }
-            }}
-            disabled={purge.isPending || active}
-            className={BTN + " hover:border-red-600 hover:text-red-600"}
-            title="Deletes every tracked file at its *arr source and queues searches for replacements"
-          >
-            {purge.isPending && purge.variables === "all" ? "Purging..." : "Delete & re-search everything"}
-          </button>
+          <div className="relative">
+            <button
+              onClick={() => setPurgeOpen((o) => !o)}
+              disabled={purge.isPending || active}
+              className={BTN + " hover:border-red-600 hover:text-red-600"}
+              title="Delete files at their *arr source and queue searches for replacements"
+            >
+              {purge.isPending ? "Purging..." : "Delete & re-search"}
+            </button>
+            {purgeOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setPurgeOpen(false)} />
+                <div className="absolute left-0 top-full z-20 mt-1 w-64 border border-neutral-200 bg-white py-1 shadow-lg">
+                  {(byStatus.corrupt ?? 0) > 0 && (
+                    <button
+                      onClick={() => {
+                        setPurgeOpen(false);
+                        const n = byStatus.corrupt ?? 0;
+                        if (
+                          window.confirm(
+                            "Delete " + n + " corrupt file(s) from Radarr/Sonarr and search for replacements?\n\nThe files are removed from disk. This cannot be undone."
+                          )
+                        ) {
+                          purge.mutate("corrupt");
+                        }
+                      }}
+                      className="block w-full px-3 py-2 text-left text-sm hover:bg-neutral-100"
+                    >
+                      Corrupt files <span className="text-neutral-400">({byStatus.corrupt ?? 0})</span>
+                    </button>
+                  )}
+                  {(byStatus.suspect ?? 0) > 0 && (
+                    <button
+                      onClick={() => {
+                        setPurgeOpen(false);
+                        const n = byStatus.suspect ?? 0;
+                        if (
+                          window.confirm(
+                            "Delete " + n + " suspect file(s) from Radarr/Sonarr and search for replacements?\n\nSuspect files may still play (recoverable errors were reported). The files are removed from disk. This cannot be undone."
+                          )
+                        ) {
+                          purge.mutate("suspect");
+                        }
+                      }}
+                      className="block w-full px-3 py-2 text-left text-sm hover:bg-neutral-100"
+                    >
+                      Suspect files <span className="text-neutral-400">({byStatus.suspect ?? 0})</span>
+                    </button>
+                  )}
+                  <button
+                    onClick={() => {
+                      setPurgeOpen(false);
+                      const n = stats.data?.total ?? 0;
+                      if (
+                        window.confirm(
+                          "Delete ALL " + n + " tracked file(s), including healthy ones, from Radarr/Sonarr and search for replacements?\n\nEvery file is removed from disk. This cannot be undone."
+                        )
+                      ) {
+                        purge.mutate("all");
+                      }
+                    }}
+                    className="block w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-neutral-100"
+                  >
+                    Everything <span className="text-neutral-400">({stats.data?.total ?? 0} files)</span>
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         )}
         {active && (
           <button
