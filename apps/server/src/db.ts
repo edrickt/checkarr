@@ -66,7 +66,13 @@ const SCHEMA: string[] = [
     " media_file_id INTEGER NOT NULL REFERENCES media_files(id) ON DELETE CASCADE," +
     " state TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending','running','done','skipped'))," +
     " UNIQUE (run_id, media_file_id))",
-  "CREATE INDEX IF NOT EXISTS idx_scan_items_run ON scan_items(run_id, state)"
+  "CREATE INDEX IF NOT EXISTS idx_scan_items_run ON scan_items(run_id, state)",
+  // Reclassify legacy probe-path "corrupt" rows: only findings containing
+  // "invalid data found when processing input" are corrupt; timeouts and
+  // other probe failures are suspect. Idempotent - matches nothing once run.
+  "UPDATE media_files SET status = 'suspect', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')" +
+    " WHERE status = 'corrupt' AND error_detail LIKE 'probe: container could not be parsed%'" +
+    " AND instr(lower(error_detail), 'invalid data found when processing input') = 0"
 ];
 
 export function migrate(db: DB): void {

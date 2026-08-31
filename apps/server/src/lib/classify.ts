@@ -24,6 +24,24 @@ export function classifyDecode(r: DecodeResult): StepVerdict {
   return r.stderr.trim().length > 0 ? "suspect" : "pass";
 }
 
+export interface ProbeFailure {
+  /** ffprobe stderr (may be empty). */
+  stderr: string;
+  /** Set when the probe could not run at all (spawn error); null otherwise. */
+  error: string | null;
+}
+
+/**
+ * Classify a failed ffprobe run.
+ *
+ * Only ffprobe reporting "invalid data found when processing input" is proof
+ * of corruption. A probe that merely times out (slow disk, network mount,
+ * huge file) or fails for any other reason is inconclusive, not corrupt.
+ */
+export function classifyProbe(f: ProbeFailure): "corrupt" | "suspect" {
+  return f.stderr.toLowerCase().includes("invalid data found when processing input") ? "corrupt" : "suspect";
+}
+
 const MAX_LINES = 6;
 const MAX_LINE_CHARS = 240;
 const MAX_TOTAL_CHARS = 1600;

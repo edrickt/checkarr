@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { applyPathMappings } from "../lib/paths.js";
-import { classifyDecode, excerpt, type StepVerdict } from "../lib/classify.js";
+import { classifyDecode, classifyProbe, excerpt, type StepVerdict } from "../lib/classify.js";
 import { ffprobeFile, runBin, type Binaries, type ProbeInfo } from "./ffmpeg.js";
 import type { PathMapping } from "../settings.js";
 
@@ -112,10 +112,15 @@ export async function checkMediaFile(originalPath: string, ctx: CheckContext): P
   const probe = await ffprobeFile(ctx.binaries.ffprobe, localPath, TIMEOUTS.probeMs, ctx.signal);
   throwIfCancelled(ctx);
   if (!probe.ok) {
+    // Only "invalid data found when processing input" is real corruption;
+    // timeouts and other probe failures are inconclusive (see classifyProbe).
+    const verdict = classifyProbe(probe);
     const why = probe.error ? " (could not run ffprobe: " + probe.error + ")" : "";
     return {
-      status: "corrupt",
-      detail: "probe: container could not be parsed" + why + NL + excerpt(probe.stderr),
+      status: verdict,
+      detail:
+        (verdict === "corrupt" ? "probe: container could not be parsed" : "probe: container could not be verified") +
+        why + NL + excerpt(probe.stderr),
       probe: null
     };
   }
