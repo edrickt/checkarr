@@ -233,7 +233,18 @@ export default function Dashboard({
                   : "Delete files at their *arr source and queue searches for replacements"
               }
             >
-              {purge.isPending ? "Purging..." : "Delete & re-search"}
+              <span className="inline-flex items-center gap-1.5">
+                {purge.isPending ? "Purging..." : "Delete & re-search"}
+                <span
+                  aria-hidden="true"
+                  className={
+                    "inline-block text-[10px] leading-none transition-transform " +
+                    (purgeOpen ? "rotate-180" : "")
+                  }
+                >
+                  &#9662;
+                </span>
+              </span>
             </button>
             {purgeOpen && (
               <>
