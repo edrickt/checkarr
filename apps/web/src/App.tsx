@@ -18,6 +18,11 @@ export default function App() {
   const [tab, setTab] = useState<Tab>("dashboard");
   const [libraryStatus, setLibraryStatus] = useState<string | null>(null);
   const [librarySource, setLibrarySource] = useState<string | null>(null);
+  // Server picked on the Dashboard: "" = all servers, otherwise a source id.
+  // Lives here so the choice survives leaving the Dashboard tab - the status
+  // cards (and everything the scan/purge/sync buttons target) stay scoped to
+  // that server instead of silently falling back to all servers.
+  const [pickerSource, setPickerSource] = useState<string>("");
   const queryClient = useQueryClient();
 
   const scanPollPaused = useScanPollingGate();
@@ -113,7 +118,13 @@ export default function App() {
         )}
       </header>
       <main className="mx-auto max-w-6xl px-4 py-6">
-        {tab === "dashboard" && <Dashboard onGoLibrary={goLibrary} />}
+        {tab === "dashboard" && (
+          <Dashboard
+            onGoLibrary={goLibrary}
+            pickerSource={pickerSource}
+            onPickerSourceChange={setPickerSource}
+          />
+        )}
         {tab === "library" && <LibraryTable initialStatus={libraryStatus} initialSourceId={librarySource} />}
         {tab === "settings" && <SettingsPage />}
       </main>

@@ -19,9 +19,14 @@ const BTN =
 const BTN_PRIMARY = "bg-neutral-900 px-3 py-1.5 text-sm text-white hover:bg-neutral-700 disabled:opacity-40";
 
 export default function Dashboard({
-  onGoLibrary
+  onGoLibrary,
+  pickerSource: library,
+  onPickerSourceChange: setLibrary
 }: {
   onGoLibrary: (status: string | null, sourceId: string | null) => void;
+  /** "" = all servers; otherwise the selected source id. Owned by App so the choice survives tab switches. */
+  pickerSource: string;
+  onPickerSourceChange: (v: string) => void;
 }) {
   const queryClient = useQueryClient();
   const [message, setMessage] = useState<string | null>(null);
@@ -39,8 +44,6 @@ export default function Dashboard({
   });
   const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
   const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources });
-  // Which library the scan buttons target; empty string means every library.
-  const [library, setLibrary] = useState<string>("");
   const [scanOpen, setScanOpen] = useState(false);
   const [purgeOpen, setPurgeOpen] = useState(false);
 
