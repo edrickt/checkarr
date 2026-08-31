@@ -11,10 +11,16 @@ const STATUS_OPTIONS = ["", "healthy", "corrupt", "suspect", "missing", "unreach
 const INPUT = "border border-neutral-300 bg-white px-3 py-1.5 text-sm placeholder:text-neutral-400 focus:border-neutral-900 focus:outline-none";
 const PAGE_BTN = "border border-neutral-300 px-2 py-1 text-neutral-600 hover:border-neutral-900 hover:text-neutral-900 disabled:opacity-40";
 
-export default function LibraryTable({ initialStatus }: { initialStatus: string | null }) {
+export default function LibraryTable({
+  initialStatus,
+  initialSourceId
+}: {
+  initialStatus: string | null;
+  initialSourceId?: string | null;
+}) {
   const queryClient = useQueryClient();
   const [status, setStatus] = useState(initialStatus ?? "");
-  const [sourceId, setSourceId] = useState("");
+  const [sourceId, setSourceId] = useState(initialSourceId ?? "");
   const [qInput, setQInput] = useState("");
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);

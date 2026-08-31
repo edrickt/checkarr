@@ -17,6 +17,7 @@ const TABS: { id: Tab; label: string }[] = [
 export default function App() {
   const [tab, setTab] = useState<Tab>("dashboard");
   const [libraryStatus, setLibraryStatus] = useState<string | null>(null);
+  const [librarySource, setLibrarySource] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   const scan = useQuery({
@@ -32,8 +33,9 @@ export default function App() {
 
   const cancelScan = useCancelScan();
 
-  const goLibrary = (status: string | null) => {
+  const goLibrary = (status: string | null, sourceId: string | null) => {
     setLibraryStatus(status);
+    setLibrarySource(sourceId);
     setTab("library");
   };
 
@@ -101,7 +103,7 @@ export default function App() {
       </header>
       <main className="mx-auto max-w-6xl px-4 py-6">
         {tab === "dashboard" && <Dashboard onGoLibrary={goLibrary} />}
-        {tab === "library" && <LibraryTable initialStatus={libraryStatus} />}
+        {tab === "library" && <LibraryTable initialStatus={libraryStatus} initialSourceId={librarySource} />}
         {tab === "settings" && <SettingsPage />}
       </main>
     </div>

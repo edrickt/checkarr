@@ -23,7 +23,7 @@ function scanButtonLabel(m: StartScan, scope: "unchecked" | "all", idle: string)
   return m.isPending && m.variables?.scope === scope ? "Starting..." : idle;
 }
 
-export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: string | null) => void }) {
+export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: string | null, sourceId: string | null) => void }) {
   const queryClient = useQueryClient();
   const [message, setMessage] = useState<string | null>(null);
 
@@ -104,10 +104,10 @@ export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: strin
         {CARDS.map((c) => (
           <button
             key={c.status}
-            onClick={() => onGoLibrary(c.status)}
+            onClick={() => onGoLibrary(c.status, library)}
             className="px-3 py-4 text-left hover:bg-neutral-50"
           >
-            <div className={"text-2xl " + c.text}>{byStatus[c.status] ?? 0}</div>
+            <div className={"text-2xl " + c.text}>{scopeByStatus[c.status] ?? 0}</div>
             <div className="mt-1 text-xs text-neutral-500">{c.label}</div>
           </button>
         ))}
