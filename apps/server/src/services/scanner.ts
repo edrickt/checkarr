@@ -33,7 +33,9 @@ export function persistOutcome(db: DB, fileId: number, outcome: CheckOutcome): v
 
 export function resumeInterruptedScans(db: DB): void {
   db.prepare("UPDATE scan_items SET state = 'pending' WHERE state = 'running'").run();
-  db.prepare("UPDATE scan_runs SET state = 'cancelled', finished_at = ? WHERE state = 'running'").run(new Date().toISOString());
+  db.prepare("UPDATE scan_runs SET state = 'cancelled', finished_at = ? WHERE state = 'running'").run(
+    new Date().toISOString()
+  );
 }
 
 export class ScanManager {
@@ -108,18 +110,29 @@ export class ScanManager {
       params.push(sourceId);
     }
     const where = clauses.length > 0 ? " WHERE " + clauses.join(" AND ") : "";
-    const countRow = this.db.prepare("SELECT COUNT(*) AS n FROM media_files" + where).get(...params) as { n: number };
+    const countRow = this.db.prepare("SELECT COUNT(*) AS n FROM media_files" + where).get(...params) as {
+      n: number;
+    };
     const total = Number(countRow.n);
     if (total === 0) {
-      throw new ApiError(400, "No files match the scan scope" + (sourceId !== undefined ? " for source " + sourceId : ""));
+      throw new ApiError(
+        400,
+        "No files match the scan scope" + (sourceId !== undefined ? " for source " + sourceId : "")
+      );
     }
 
     const runRes = this.db
-      .prepare("INSERT INTO scan_runs (mode, scope, source_id, state, total, started_at) VALUES ('quick', ?, ?, 'running', ?, ?)")
+      .prepare(
+        "INSERT INTO scan_runs (mode, scope, source_id, state, total, started_at) VALUES ('quick', ?, ?, 'running', ?, ?)"
+      )
       .run(scope, sourceId ?? null, total, new Date().toISOString());
     const runId = Number(runRes.lastInsertRowid);
     this.db
-      .prepare("INSERT INTO scan_items (run_id, media_file_id) SELECT ?, id FROM media_files" + where + " ORDER BY id")
+      .prepare(
+        "INSERT INTO scan_items (run_id, media_file_id) SELECT ?, id FROM media_files" +
+          where +
+          " ORDER BY id"
+      )
       .run(runId, ...params);
 
     this.activeRunId = runId;
@@ -158,7 +171,9 @@ export class ScanManager {
       console.error("scan run " + runId + " crashed:" + NL + String((err as Error)?.stack ?? err));
     } finally {
       const state = this.failed || this.cancelled ? "cancelled" : "done";
-      this.db.prepare("UPDATE scan_runs SET state = ?, finished_at = ? WHERE id = ?").run(state, new Date().toISOString(), runId);
+      this.db
+        .prepare("UPDATE scan_runs SET state = ?, finished_at = ? WHERE id = ?")
+        .run(state, new Date().toISOString(), runId);
       this.cancelController = null;
       this.running = false;
       // The run is settled: drop the flags so currentRun() reports the final
@@ -174,9 +189,9 @@ export class ScanManager {
       const item = this.claim(runId);
       if (!item) return;
       try {
-        const file = this.db.prepare("SELECT id, path FROM media_files WHERE id = ?").get(item.media_file_id) as
-          | { id: number; path: string }
-          | undefined;
+        const file = this.db
+          .prepare("SELECT id, path FROM media_files WHERE id = ?")
+          .get(item.media_file_id) as { id: number; path: string } | undefined;
         if (!file) {
           this.db.prepare("UPDATE scan_items SET state = 'skipped' WHERE id = ?").run(item.id);
           continue;
@@ -192,7 +207,11 @@ export class ScanManager {
             this.db.prepare("UPDATE scan_items SET state = 'pending' WHERE id = ?").run(item.id);
             return;
           }
-          outcome = { status: "suspect", detail: "checker error: " + String((err as Error)?.message ?? err), probe: null };
+          outcome = {
+            status: "suspect",
+            detail: "checker error: " + String((err as Error)?.message ?? err),
+            probe: null
+          };
         }
         // Close the window between the last in-checker cancellation
         // checkpoint and the verdict write: an abort landing here must not
@@ -217,10 +236,14 @@ export class ScanManager {
         this.failed = true;
         try {
           this.db.prepare("UPDATE scan_items SET state = 'pending' WHERE id = ?").run(item.id);
-        } catch { /* the db is the thing that just broke */ }
+        } catch {
+          /* the db is the thing that just broke */
+        }
         try {
           this.cancelController?.abort();
-        } catch { /* already torn down */ }
+        } catch {
+          /* already torn down */
+        }
         console.error("scan worker failed:" + NL + String((err as Error)?.stack ?? err));
         return;
       }
@@ -230,7 +253,9 @@ export class ScanManager {
   /** Synchronous claim between awaits is race-free in the single-threaded event loop. */
   private claim(runId: number): ClaimedItem | null {
     const item = this.db
-      .prepare("SELECT id, media_file_id FROM scan_items WHERE run_id = ? AND state = 'pending' ORDER BY id LIMIT 1")
+      .prepare(
+        "SELECT id, media_file_id FROM scan_items WHERE run_id = ? AND state = 'pending' ORDER BY id LIMIT 1"
+      )
       .get(runId) as unknown as ClaimedItem | undefined;
     if (!item) return null;
     this.db.prepare("UPDATE scan_items SET state = 'running' WHERE id = ?").run(item.id);

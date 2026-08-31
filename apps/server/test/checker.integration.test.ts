@@ -36,7 +36,23 @@ describe.skipIf(!FF)("checker integration (real ffmpeg)", () => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "checkarr-test-"));
 
     const base = ["-nostdin", "-hide_banner", "-loglevel", "error"];
-    const av = ["-f", "lavfi", "-i", "testsrc=size=160x120:rate=10:duration=4", "-f", "lavfi", "-i", "sine=frequency=440:duration=4", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest"];
+    const av = [
+      "-f",
+      "lavfi",
+      "-i",
+      "testsrc=size=160x120:rate=10:duration=4",
+      "-f",
+      "lavfi",
+      "-i",
+      "sine=frequency=440:duration=4",
+      "-c:v",
+      "libx264",
+      "-pix_fmt",
+      "yuv420p",
+      "-c:a",
+      "aac",
+      "-shortest"
+    ];
 
     // healthy: faststart mp4, decodes end to end
     await encode([...base, "-y", ...av, "-movflags", "+faststart", path.join(dir, "healthy.mp4")]);

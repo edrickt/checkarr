@@ -94,11 +94,28 @@ export interface TestResult {
 }
 
 export interface SyncResponse {
-  results: { sourceId: number; name: string; ok: boolean; added?: number; updated?: number; removed?: number; total?: number; error?: string }[];
+  results: {
+    sourceId: number;
+    name: string;
+    ok: boolean;
+    added?: number;
+    updated?: number;
+    removed?: number;
+    total?: number;
+    error?: string;
+  }[];
 }
 
 export interface PurgeResponse {
-  results: { sourceId: number; name: string; type: string; deleted: number; searched: number; skipped: number; errors: string[] }[];
+  results: {
+    sourceId: number;
+    name: string;
+    type: string;
+    deleted: number;
+    searched: number;
+    skipped: number;
+    errors: string[];
+  }[];
   total: number;
 }
 

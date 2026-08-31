@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { classifyDecode, classifyProbe, excerpt, looksLikeMissing, progressShowsDecoding } from "../src/lib/classify.js";
+import {
+  classifyDecode,
+  classifyProbe,
+  excerpt,
+  looksLikeMissing,
+  progressShowsDecoding
+} from "../src/lib/classify.js";
 
 describe("classifyDecode", () => {
   it("fails on non-zero exit", () => {
@@ -24,10 +30,14 @@ describe("classifyDecode", () => {
 
 describe("classifyProbe", () => {
   it("is corrupt when ffprobe reports invalid data", () => {
-    expect(classifyProbe({ stderr: "/movies/a.mkv: Invalid data found when processing input", error: null })).toBe("corrupt");
+    expect(
+      classifyProbe({ stderr: "/movies/a.mkv: Invalid data found when processing input", error: null })
+    ).toBe("corrupt");
   });
   it("matches invalid data case-insensitively", () => {
-    expect(classifyProbe({ stderr: "/movies/a.mkv: invalid data found when processing input", error: null })).toBe("corrupt");
+    expect(
+      classifyProbe({ stderr: "/movies/a.mkv: invalid data found when processing input", error: null })
+    ).toBe("corrupt");
   });
   it("is suspect when ffprobe times out", () => {
     expect(classifyProbe({ stderr: "[checkarr] ffprobe timed out", error: null })).toBe("suspect");

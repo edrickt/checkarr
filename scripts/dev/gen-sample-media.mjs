@@ -30,10 +30,35 @@ function run(args) {
   });
 }
 
-const AV = ["-f", "lavfi", "-i", "testsrc=size=320x240:rate=12:duration=6", "-f", "lavfi", "-i", "sine=frequency=440:duration=6", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest"];
+const AV = [
+  "-f",
+  "lavfi",
+  "-i",
+  "testsrc=size=320x240:rate=12:duration=6",
+  "-f",
+  "lavfi",
+  "-i",
+  "sine=frequency=440:duration=6",
+  "-c:v",
+  "libx264",
+  "-pix_fmt",
+  "yuv420p",
+  "-c:a",
+  "aac",
+  "-shortest"
+];
 
 // 1. healthy movie (faststart mp4)
-await run(["-hide_banner", "-loglevel", "error", "-y", ...AV, "-movflags", "+faststart", path.join(dir, "healthy-movie.mp4")]);
+await run([
+  "-hide_banner",
+  "-loglevel",
+  "error",
+  "-y",
+  ...AV,
+  "-movflags",
+  "+faststart",
+  path.join(dir, "healthy-movie.mp4")
+]);
 
 // 2. truncated movie (moov at the end, cut to 40%)
 const truncPath = path.join(dir, "truncated-movie.mp4");

@@ -54,7 +54,8 @@ export const api = {
     send<{ ok: boolean }>("PUT", "/api/sources/" + id, patch),
   deleteSource: (id: number) => send<{ ok: boolean }>("DELETE", "/api/sources/" + id),
   testSource: (id: number) => send<TestResult>("POST", "/api/sources/" + id + "/test"),
-  sync: (sourceId?: number) => send<SyncResponse>("POST", "/api/sync", sourceId !== undefined ? { sourceId } : {}),
+  sync: (sourceId?: number) =>
+    send<SyncResponse>("POST", "/api/sync", sourceId !== undefined ? { sourceId } : {}),
   purge: (status: "corrupt" | "suspect" | "all", sourceId?: number, confirm?: boolean) => {
     const body: Record<string, unknown> = { status };
     if (sourceId !== undefined) body.sourceId = sourceId;
@@ -103,5 +104,10 @@ export interface MediaFileDetail {
   audioCodec: string | null;
   errorDetail: string | null;
   checkedAt: string | null;
-  probe: { durationS: number | null; container: string | null; videoCodec: string | null; audioCodec: string | null } | null;
+  probe: {
+    durationS: number | null;
+    container: string | null;
+    videoCodec: string | null;
+    audioCodec: string | null;
+  } | null;
 }

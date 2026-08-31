@@ -51,10 +51,22 @@ const OUTPUT_CAP = 256 * 1024;
 /** Run a binary to completion with a hard timeout (SIGTERM, then SIGKILL).
  *  An optional abort signal kills the process the same way, so a cancelled
  *  scan does not keep decoding files in the background. */
-export function runBin(bin: string, args: string[], timeoutMs: number, signal?: AbortSignal): Promise<RunResult> {
+export function runBin(
+  bin: string,
+  args: string[],
+  timeoutMs: number,
+  signal?: AbortSignal
+): Promise<RunResult> {
   return new Promise((resolve) => {
     if (signal?.aborted) {
-      resolve({ code: -1, stdout: "", stderr: "", timedOut: false, signaled: null, error: "aborted before start" });
+      resolve({
+        code: -1,
+        stdout: "",
+        stderr: "",
+        timedOut: false,
+        signaled: null,
+        error: "aborted before start"
+      });
       return;
     }
     let stdout = "";
@@ -67,16 +79,37 @@ export function runBin(bin: string, args: string[], timeoutMs: number, signal?: 
       // check on Windows (maps to CREATE_NO_WINDOW); ignored on POSIX.
       child = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
     } catch (err) {
-      resolve({ code: -1, stdout: "", stderr: "", timedOut: false, signaled: null, error: String((err as Error)?.message ?? err) });
+      resolve({
+        code: -1,
+        stdout: "",
+        stderr: "",
+        timedOut: false,
+        signaled: null,
+        error: String((err as Error)?.message ?? err)
+      });
       return;
     }
     let killTimer: NodeJS.Timeout | null = null;
     const killTree = (): void => {
-      try { child.kill("SIGTERM"); } catch { /* already gone */ }
-      killTimer = setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* already gone */ } }, 2000);
+      try {
+        child.kill("SIGTERM");
+      } catch {
+        /* already gone */
+      }
+      killTimer = setTimeout(() => {
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          /* already gone */
+        }
+      }, 2000);
     };
-    child.stdout?.on("data", (d: Buffer) => { if (stdout.length < OUTPUT_CAP) stdout += d.toString("utf8"); });
-    child.stderr?.on("data", (d: Buffer) => { if (stderr.length < OUTPUT_CAP) stderr += d.toString("utf8"); });
+    child.stdout?.on("data", (d: Buffer) => {
+      if (stdout.length < OUTPUT_CAP) stdout += d.toString("utf8");
+    });
+    child.stderr?.on("data", (d: Buffer) => {
+      if (stderr.length < OUTPUT_CAP) stderr += d.toString("utf8");
+    });
     const timer = setTimeout(() => {
       timedOut = true;
       killTree();
@@ -105,11 +138,14 @@ export interface ProbeInfo {
   audioCodec: string | null;
 }
 
-export type ProbeResult =
-  | { ok: true; info: ProbeInfo }
-  | { ok: false; stderr: string; error: string | null };
+export type ProbeResult = { ok: true; info: ProbeInfo } | { ok: false; stderr: string; error: string | null };
 
-export async function ffprobeFile(bin: string, file: string, timeoutMs: number, signal?: AbortSignal): Promise<ProbeResult> {
+export async function ffprobeFile(
+  bin: string,
+  file: string,
+  timeoutMs: number,
+  signal?: AbortSignal
+): Promise<ProbeResult> {
   const r = await runBin(
     bin,
     // note: ffprobe has no -nostdin flag (that is ffmpeg-only)
@@ -118,16 +154,29 @@ export async function ffprobeFile(bin: string, file: string, timeoutMs: number, 
     signal
   );
   if (r.error) return { ok: false, stderr: r.stderr, error: r.error };
-  if (r.timedOut) return { ok: false, stderr: r.stderr + String.fromCharCode(10) + "[checkarr] ffprobe timed out", error: null };
+  if (r.timedOut)
+    return {
+      ok: false,
+      stderr: r.stderr + String.fromCharCode(10) + "[checkarr] ffprobe timed out",
+      error: null
+    };
   if (r.code !== 0) return { ok: false, stderr: r.stderr, error: null };
-  let parsed: any;
+  let parsed: unknown;
   try {
     parsed = JSON.parse(r.stdout);
   } catch (err) {
-    return { ok: false, stderr: "unparseable ffprobe output: " + String((err as Error)?.message ?? err), error: null };
+    return {
+      ok: false,
+      stderr: "unparseable ffprobe output: " + String((err as Error)?.message ?? err),
+      error: null
+    };
   }
-  const fmt = (parsed && typeof parsed === "object" ? parsed.format : null) ?? {};
-  const streams: any[] = Array.isArray(parsed?.streams) ? parsed.streams : [];
+  const obj = (parsed && typeof parsed === "object" ? parsed : {}) as {
+    format?: { duration?: unknown; format_name?: unknown };
+    streams?: { codec_type?: unknown; codec_name?: unknown }[];
+  };
+  const fmt = obj.format ?? {};
+  const streams = Array.isArray(obj.streams) ? obj.streams : [];
   const video = streams.find((s) => s && s.codec_type === "video");
   const audio = streams.find((s) => s && s.codec_type === "audio");
   let durationS: number | null = null;

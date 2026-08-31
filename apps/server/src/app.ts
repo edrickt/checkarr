@@ -70,7 +70,10 @@ export async function buildApp(db: DB): Promise<FastifyInstance> {
       // Fastify parses text/plain bodies, which let no-cors form POSTs reach
       // destructive handlers with their defaults; writes must be JSON.
       const ct = req.headers["content-type"];
-      if (ct !== undefined && !String(ct).split(";")[0]!.trim().toLowerCase().startsWith("application/json")) {
+      if (
+        ct !== undefined &&
+        !String(ct).split(";")[0]!.trim().toLowerCase().startsWith("application/json")
+      ) {
         return reply.code(415).send({ error: "use application/json" });
       }
     }

@@ -12,16 +12,20 @@ function makeDb(): DB {
 }
 
 function seed(db: DB): void {
-  db.prepare("INSERT INTO sources (id, type, name, base_url, api_key) VALUES (1, 'radarr', 'Radarr', ?, 'k')").run("");
-  db.prepare("INSERT INTO sources (id, type, name, base_url, api_key) VALUES (2, 'sonarr', 'Sonarr', ?, 'k')").run("");
+  db.prepare(
+    "INSERT INTO sources (id, type, name, base_url, api_key) VALUES (1, 'radarr', 'Radarr', ?, 'k')"
+  ).run("");
+  db.prepare(
+    "INSERT INTO sources (id, type, name, base_url, api_key) VALUES (2, 'sonarr', 'Sonarr', ?, 'k')"
+  ).run("");
   const ins = db.prepare(
     "INSERT INTO media_files (source_id, kind, external_id, title, path, status) VALUES (?, ?, ?, ?, ?, ?)"
   );
-  ins.run(1, "movie", "1", "Movie A", "/movies/a.mkv", "corrupt");   // radarr: movieFile 101 at same path -> delete
-  ins.run(1, "movie", "2", "Movie B", "/movies/b.mkv", "corrupt");   // radarr: no movieFile -> skip
-  ins.run(1, "movie", "3", "Healthy", "/movies/c.mkv", "healthy");   // never touched
-  ins.run(2, "episode", "11", "Show", "/tv/s01e01.mkv", "corrupt");  // sonarr: episodeFile 201 at same path -> delete
-  ins.run(2, "episode", "12", "Show", "/tv/s01e02.mkv", "corrupt");  // sonarr: no file -> skip
+  ins.run(1, "movie", "1", "Movie A", "/movies/a.mkv", "corrupt"); // radarr: movieFile 101 at same path -> delete
+  ins.run(1, "movie", "2", "Movie B", "/movies/b.mkv", "corrupt"); // radarr: no movieFile -> skip
+  ins.run(1, "movie", "3", "Healthy", "/movies/c.mkv", "healthy"); // never touched
+  ins.run(2, "episode", "11", "Show", "/tv/s01e01.mkv", "corrupt"); // sonarr: episodeFile 201 at same path -> delete
+  ins.run(2, "episode", "12", "Show", "/tv/s01e02.mkv", "corrupt"); // sonarr: no file -> skip
 }
 
 describe("purge", () => {
@@ -50,9 +54,12 @@ describe("purge", () => {
     radarr = createServer((req, res) => {
       if (req.headers["x-api-key"] !== "k") return json(res, {}, 401);
       const u = new URL(req.url ?? "/", "http://localhost");
-      if (req.method === "GET" && u.pathname === "/api/v3/movie/1") return json(res, { id: 1, movieFile: { id: 101, path: "/movies/a.mkv" } });
-      if (req.method === "GET" && u.pathname === "/api/v3/movie/2") return json(res, { id: 2, movieFile: null });
-      if (req.method === "GET" && u.pathname === "/api/v3/movie/4") return json(res, { id: 4, movieFile: { id: 404, path: "/movies/moved-elsewhere.mkv" } });
+      if (req.method === "GET" && u.pathname === "/api/v3/movie/1")
+        return json(res, { id: 1, movieFile: { id: 101, path: "/movies/a.mkv" } });
+      if (req.method === "GET" && u.pathname === "/api/v3/movie/2")
+        return json(res, { id: 2, movieFile: null });
+      if (req.method === "GET" && u.pathname === "/api/v3/movie/4")
+        return json(res, { id: 4, movieFile: { id: 404, path: "/movies/moved-elsewhere.mkv" } });
       if (req.method === "DELETE" && u.pathname === "/api/v3/moviefile/101") {
         deletes.push("radarr:101");
         return noContent(res);
@@ -71,9 +78,22 @@ describe("purge", () => {
     sonarr = createServer((req, res) => {
       if (req.headers["x-api-key"] !== "k") return json(res, {}, 401);
       const u = new URL(req.url ?? "/", "http://localhost");
-      if (req.method === "GET" && u.pathname === "/api/v3/episode/11") return json(res, { id: 11, episodeFileId: 201, hasFile: true, episodeFile: { id: 201, path: "/tv/s01e01.mkv" } });
-      if (req.method === "GET" && u.pathname === "/api/v3/episode/12") return json(res, { id: 12, episodeFileId: null, hasFile: false, episodeFile: null });
-      if (req.method === "GET" && u.pathname === "/api/v3/episode/13") return json(res, { id: 13, episodeFileId: 202, hasFile: true, episodeFile: { id: 202, path: "/tv/renamed.mkv" } });
+      if (req.method === "GET" && u.pathname === "/api/v3/episode/11")
+        return json(res, {
+          id: 11,
+          episodeFileId: 201,
+          hasFile: true,
+          episodeFile: { id: 201, path: "/tv/s01e01.mkv" }
+        });
+      if (req.method === "GET" && u.pathname === "/api/v3/episode/12")
+        return json(res, { id: 12, episodeFileId: null, hasFile: false, episodeFile: null });
+      if (req.method === "GET" && u.pathname === "/api/v3/episode/13")
+        return json(res, {
+          id: 13,
+          episodeFileId: 202,
+          hasFile: true,
+          episodeFile: { id: 202, path: "/tv/renamed.mkv" }
+        });
       if (req.method === "DELETE" && u.pathname === "/api/v3/episodefile/201") {
         deletes.push("sonarr:201");
         return noContent(res);
@@ -93,7 +113,8 @@ describe("purge", () => {
     radarrFail = createServer((req, res) => {
       if (req.headers["x-api-key"] !== "k") return json(res, {}, 401);
       const u = new URL(req.url ?? "/", "http://localhost");
-      if (req.method === "GET" && u.pathname === "/api/v3/movie/6") return json(res, { id: 6, movieFile: { id: 600, path: "/movies/g.mkv" } });
+      if (req.method === "GET" && u.pathname === "/api/v3/movie/6")
+        return json(res, { id: 6, movieFile: { id: 600, path: "/movies/g.mkv" } });
       if (req.method === "DELETE" && u.pathname === "/api/v3/moviefile/600") {
         deletes.push("radarrFail:600");
         return noContent(res);
@@ -121,11 +142,13 @@ describe("purge", () => {
     commands.length = 0;
   });
 
-  afterAll(() => Promise.all([
-    new Promise<void>((resolve) => radarr.close(() => resolve())),
-    new Promise<void>((resolve) => sonarr.close(() => resolve())),
-    new Promise<void>((resolve) => radarrFail.close(() => resolve()))
-  ]));
+  afterAll(() =>
+    Promise.all([
+      new Promise<void>((resolve) => radarr.close(() => resolve())),
+      new Promise<void>((resolve) => sonarr.close(() => resolve())),
+      new Promise<void>((resolve) => radarrFail.close(() => resolve()))
+    ])
+  );
 
   it("deletes corrupt files with empty-body DELETE responses, then batches searches", async () => {
     const db = makeDb();
@@ -164,8 +187,8 @@ describe("purge", () => {
     const ins = db.prepare(
       "INSERT INTO media_files (source_id, kind, external_id, title, path, status) VALUES (?, ?, ?, ?, ?, ?)"
     );
-    ins.run(1, "movie", "4", "Movie D", "/movies/old.mkv", "corrupt");  // radarr now points elsewhere
-    ins.run(2, "episode", "13", "Show", "/tv/old.mkv", "corrupt");      // sonarr now points elsewhere
+    ins.run(1, "movie", "4", "Movie D", "/movies/old.mkv", "corrupt"); // radarr now points elsewhere
+    ins.run(2, "episode", "13", "Show", "/tv/old.mkv", "corrupt"); // sonarr now points elsewhere
     db.prepare("UPDATE sources SET base_url = ? WHERE id = 1").run(radarrUrl);
     db.prepare("UPDATE sources SET base_url = ? WHERE id = 2").run(sonarrUrl);
 
@@ -182,8 +205,12 @@ describe("purge", () => {
 
   it("keeps deleted counts and reports the failure when the replacement search fails", async () => {
     const db = makeDb();
-    db.prepare("INSERT INTO sources (id, type, name, base_url, api_key) VALUES (4, 'radarr', 'RadarrFail', ?, 'k')").run("");
-    db.prepare("INSERT INTO media_files (source_id, kind, external_id, title, path, status) VALUES (4, 'movie', '6', 'Movie G', '/movies/g.mkv', 'corrupt')").run();
+    db.prepare(
+      "INSERT INTO sources (id, type, name, base_url, api_key) VALUES (4, 'radarr', 'RadarrFail', ?, 'k')"
+    ).run("");
+    db.prepare(
+      "INSERT INTO media_files (source_id, kind, external_id, title, path, status) VALUES (4, 'movie', '6', 'Movie G', '/movies/g.mkv', 'corrupt')"
+    ).run();
     db.prepare("UPDATE sources SET base_url = ? WHERE id = 4").run(radarrFailUrl);
 
     const result = await purgeFiles(db, { sourceId: 4 });
@@ -199,8 +226,12 @@ describe("purge", () => {
     seed(db);
     db.prepare("UPDATE sources SET base_url = ? WHERE id = 1").run(radarrUrl);
     db.prepare("UPDATE sources SET base_url = ? WHERE id = 2").run(sonarrUrl);
-    db.prepare("INSERT INTO sources (id, type, name, base_url, api_key, enabled) VALUES (3, 'radarr', 'Off', ?, 'k', 0)").run(radarrUrl);
-    db.prepare("INSERT INTO media_files (source_id, kind, external_id, title, path, status) VALUES (3, 'movie', '1', 'Off Movie', '/movies/a.mkv', 'corrupt')").run();
+    db.prepare(
+      "INSERT INTO sources (id, type, name, base_url, api_key, enabled) VALUES (3, 'radarr', 'Off', ?, 'k', 0)"
+    ).run(radarrUrl);
+    db.prepare(
+      "INSERT INTO media_files (source_id, kind, external_id, title, path, status) VALUES (3, 'movie', '1', 'Off Movie', '/movies/a.mkv', 'corrupt')"
+    ).run();
 
     const result = await purgeCorrupt(db);
     expect(result.results.find((r) => r.sourceId === 3)).toBeUndefined();

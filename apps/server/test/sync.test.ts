@@ -11,24 +11,66 @@ function makeDb(): DB {
   return db;
 }
 
-function insertSource(db: DB, type: string, baseUrl: string, apiKey: string): { id: number; type: string; name: string; base_url: string; api_key: string } {
-  db.prepare("INSERT INTO sources (type, name, base_url, api_key) VALUES (?, 'test', ?, ?)").run(type, baseUrl, apiKey);
+function insertSource(
+  db: DB,
+  type: string,
+  baseUrl: string,
+  apiKey: string
+): { id: number; type: string; name: string; base_url: string; api_key: string } {
+  db.prepare("INSERT INTO sources (type, name, base_url, api_key) VALUES (?, 'test', ?, ?)").run(
+    type,
+    baseUrl,
+    apiKey
+  );
   return db.prepare("SELECT id, type, name, base_url, api_key FROM sources WHERE id = 1").get() as {
-    id: number; type: string; name: string; base_url: string; api_key: string;
+    id: number;
+    type: string;
+    name: string;
+    base_url: string;
+    api_key: string;
   };
 }
 
 const MOVIES = [
-  { id: 1, title: "Alpha", year: 2020, movieFile: { path: "/movies/alpha.mkv", size: 123, quality: { quality: { name: "WEBDL-1080p" } } } },
+  {
+    id: 1,
+    title: "Alpha",
+    year: 2020,
+    movieFile: { path: "/movies/alpha.mkv", size: 123, quality: { quality: { name: "WEBDL-1080p" } } }
+  },
   { id: 2, title: "No File Yet", year: 2021, movieFile: null }
 ];
 
 const SERIES = [{ id: 7, title: "Beta Show" }];
 
 const EPISODES = [
-  { id: 11, seriesId: 7, seasonNumber: 1, episodeNumber: 2, title: "Pilot", hasFile: true, episodeFile: { path: "/tv/beta/s01e02.mkv", size: 456, quality: { quality: { name: "HDTV-720p" } } } },
-  { id: 12, seriesId: 7, seasonNumber: 1, episodeNumber: 3, title: "Two", hasFile: true, episodeFile: { path: "/tv/beta/s01e03.mkv", size: 789, quality: { quality: { name: "HDTV-720p" } } } },
-  { id: 13, seriesId: 7, seasonNumber: 1, episodeNumber: 4, title: "Missing", hasFile: false, episodeFile: null }
+  {
+    id: 11,
+    seriesId: 7,
+    seasonNumber: 1,
+    episodeNumber: 2,
+    title: "Pilot",
+    hasFile: true,
+    episodeFile: { path: "/tv/beta/s01e02.mkv", size: 456, quality: { quality: { name: "HDTV-720p" } } }
+  },
+  {
+    id: 12,
+    seriesId: 7,
+    seasonNumber: 1,
+    episodeNumber: 3,
+    title: "Two",
+    hasFile: true,
+    episodeFile: { path: "/tv/beta/s01e03.mkv", size: 789, quality: { quality: { name: "HDTV-720p" } } }
+  },
+  {
+    id: 13,
+    seriesId: 7,
+    seasonNumber: 1,
+    episodeNumber: 4,
+    title: "Missing",
+    hasFile: false,
+    episodeFile: null
+  }
 ];
 
 describe("sync", () => {
@@ -41,7 +83,8 @@ describe("sync", () => {
         res.writeHead(401, { "content-type": "application/json" }).end("{}");
         return;
       }
-      const json = (body: unknown) => res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(body));
+      const json = (body: unknown) =>
+        res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(body));
       const u = new URL(req.url ?? "/", "http://localhost");
       if (u.pathname === "/api/v3/movie") return json(MOVIES);
       if (u.pathname === "/api/v3/series") return json(SERIES);
@@ -50,14 +93,16 @@ describe("sync", () => {
       if (u.pathname === "/api/v3/episode") {
         const sid = u.searchParams.get("seriesId");
         if (!sid) {
-          res.writeHead(400, { "content-type": "application/json" }).end(JSON.stringify({ message: "seriesId or episodeIds must be provided" }));
+          res
+            .writeHead(400, { "content-type": "application/json" })
+            .end(JSON.stringify({ message: "seriesId or episodeIds must be provided" }));
           return;
         }
         const includeFile = u.searchParams.get("includeEpisodeFile") === "true";
         return json(
-          EPISODES
-            .filter((e) => String(e.seriesId) === sid)
-            .map((e) => (includeFile ? e : { ...e, episodeFile: null }))
+          EPISODES.filter((e) => String(e.seriesId) === sid).map((e) =>
+            includeFile ? e : { ...e, episodeFile: null }
+          )
         );
       }
       res.writeHead(404).end("{}");
@@ -75,7 +120,11 @@ describe("sync", () => {
     const first = await syncSource(db, src);
     expect(first.added).toBe(1);
     expect(first.updated).toBe(0);
-    const rows = db.prepare("SELECT path, quality, kind FROM media_files").all() as { path: string; quality: string; kind: string }[];
+    const rows = db.prepare("SELECT path, quality, kind FROM media_files").all() as {
+      path: string;
+      quality: string;
+      kind: string;
+    }[];
     expect(rows.length).toBe(1);
     expect(rows[0].path).toBe("/movies/alpha.mkv");
     expect(rows[0].quality).toBe("WEBDL-1080p");
@@ -92,7 +141,11 @@ describe("sync", () => {
     const src = insertSource(db, "sonarr", url, "good-key");
     const r = await syncSource(db, src);
     expect(r.added).toBe(2);
-    const rows = db.prepare("SELECT title, subtitle, path FROM media_files ORDER BY path").all() as { title: string; subtitle: string; path: string }[];
+    const rows = db.prepare("SELECT title, subtitle, path FROM media_files ORDER BY path").all() as {
+      title: string;
+      subtitle: string;
+      path: string;
+    }[];
     expect(rows.length).toBe(2);
     expect(rows[0].title).toBe("Beta Show");
     expect(rows[0].subtitle).toContain("S01E02");
@@ -104,7 +157,9 @@ describe("sync", () => {
     const db = makeDb();
     const src = insertSource(db, "sonarr", url, "good-key");
     await syncSource(db, src);
-    db.prepare("INSERT INTO media_files (source_id, kind, external_id, title, path) VALUES (1, 'episode', '99', 'Stale', '/tv/beta/stale.mkv')").run();
+    db.prepare(
+      "INSERT INTO media_files (source_id, kind, external_id, title, path) VALUES (1, 'episode', '99', 'Stale', '/tv/beta/stale.mkv')"
+    ).run();
     const r = await syncSource(db, src);
     expect(r.removed).toBe(1);
     const stale = db.prepare("SELECT id FROM media_files WHERE path = '/tv/beta/stale.mkv'").get();
@@ -125,7 +180,9 @@ describe("sync", () => {
     const db = makeDb();
     const src = insertSource(db, "radarr", url, "wrong-key");
     await expect(syncSource(db, src)).rejects.toThrow(/Unauthorized/);
-    const srow = db.prepare("SELECT last_sync_error FROM sources WHERE id = 1").get() as { last_sync_error: string | null };
+    const srow = db.prepare("SELECT last_sync_error FROM sources WHERE id = 1").get() as {
+      last_sync_error: string | null;
+    };
     expect(srow.last_sync_error).toBeNull(); // syncSource rethrows; caller records the error
   });
 });

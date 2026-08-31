@@ -1,6 +1,13 @@
 import fs from "node:fs";
 import { applyPathMappings } from "../lib/paths.js";
-import { classifyDecode, classifyProbe, excerpt, looksLikeMissing, progressShowsDecoding, type StepVerdict } from "../lib/classify.js";
+import {
+  classifyDecode,
+  classifyProbe,
+  excerpt,
+  looksLikeMissing,
+  progressShowsDecoding,
+  type StepVerdict
+} from "../lib/classify.js";
 import { ffprobeFile, runBin, type Binaries, type ProbeInfo } from "./ffmpeg.js";
 import type { PathMapping } from "../settings.js";
 
@@ -45,16 +52,30 @@ interface Step {
  * seekS performs an input seek first (like a player scrub); seconds limits how much is decoded.
  */
 // Guards against corrupted files that declare insane dimensions or make
-  // ffmpeg allocate absurd buffers before decoding anything. Real media
-  // (up to 8K, ~33.5M pixels) sails under both limits; damaged files fail
-  // fast with an allocation error instead of eating gigabytes of RAM.
+// ffmpeg allocate absurd buffers before decoding anything. Real media
+// (up to 8K, ~33.5M pixels) sails under both limits; damaged files fail
+// fast with an allocation error instead of eating gigabytes of RAM.
 const MAX_PIXELS = String(33_554_432);
 const MAX_ALLOC = String(1024 * 1024 * 1024);
 
-export function decodeArgs(file: string, opts: { seconds?: number; seekS?: number; threads?: number }): string[] {
+export function decodeArgs(
+  file: string,
+  opts: { seconds?: number; seekS?: number; threads?: number }
+): string[] {
   // -progress pipe:1 lets us prove that frames were actually decoded; see
   // runDecodeStep. It writes small key=value blocks to stdout.
-  const args = ["-nostdin", "-hide_banner", "-v", "error", "-max_pixels", MAX_PIXELS, "-max_alloc", MAX_ALLOC, "-progress", "pipe:1"];
+  const args = [
+    "-nostdin",
+    "-hide_banner",
+    "-v",
+    "error",
+    "-max_pixels",
+    MAX_PIXELS,
+    "-max_alloc",
+    MAX_ALLOC,
+    "-progress",
+    "pipe:1"
+  ];
   // ffmpeg decodes as fast as it can with up to ~16 threads per process by
   // default, which oversubscribes the CPU and starves everything else.
   // Budgeting threads per worker keeps the machine responsive.
@@ -87,7 +108,11 @@ async function runDecodeStep(
     return { name, verdict: "pass", detail: null };
   }
   if (v === "fail") {
-    return { name, verdict: "fail", detail: name + " failed (exit " + r.code + "):" + NL + excerpt(r.stderr) };
+    return {
+      name,
+      verdict: "fail",
+      detail: name + " failed (exit " + r.code + "):" + NL + excerpt(r.stderr)
+    };
   }
   const why = r.timedOut ? " timed out" : " reported recoverable errors:";
   return { name, verdict: "suspect", detail: name + why + NL + excerpt(r.stderr) };
@@ -114,7 +139,11 @@ export async function checkMediaFile(originalPath: string, ctx: CheckContext): P
     if (code === "EACCES" || code === "EPERM") {
       return { status: "unreachable", detail: "Permission denied: " + localPath, probe: null };
     }
-    return { status: "unreachable", detail: "Cannot access file: " + String((err as Error)?.message ?? err), probe: null };
+    return {
+      status: "unreachable",
+      detail: "Cannot access file: " + String((err as Error)?.message ?? err),
+      probe: null
+    };
   }
 
   // 2. Probe the container
@@ -134,8 +163,12 @@ export async function checkMediaFile(originalPath: string, ctx: CheckContext): P
     return {
       status: verdict,
       detail:
-        (verdict === "corrupt" ? "probe: container could not be parsed" : "probe: container could not be verified") +
-        why + NL + excerpt(probe.stderr),
+        (verdict === "corrupt"
+          ? "probe: container could not be parsed"
+          : "probe: container could not be verified") +
+        why +
+        NL +
+        excerpt(probe.stderr),
       probe: null
     };
   }
@@ -144,14 +177,28 @@ export async function checkMediaFile(originalPath: string, ctx: CheckContext): P
   // 3. Decode checks: the first 10 seconds, then 10 seconds from the middle
   // (50% of duration) when the duration is known.
   const steps: Step[] = [];
-  const start = await runDecodeStep(ctx.binaries.ffmpeg, localPath, "start (first 10s)", { seconds: 10, threads: ctx.threads }, TIMEOUTS.segmentMs, ctx.signal);
+  const start = await runDecodeStep(
+    ctx.binaries.ffmpeg,
+    localPath,
+    "start (first 10s)",
+    { seconds: 10, threads: ctx.threads },
+    TIMEOUTS.segmentMs,
+    ctx.signal
+  );
   throwIfCancelled(ctx);
   steps.push(start);
   const dur = info.durationS;
   if (start.verdict !== "fail" && dur !== null && dur > 0) {
     throwIfCancelled(ctx);
     const mid = Math.max(0, Math.floor(dur / 2));
-    const midStep = await runDecodeStep(ctx.binaries.ffmpeg, localPath, "middle (from " + mid + "s, 10s)", { seconds: 10, seekS: mid, threads: ctx.threads }, TIMEOUTS.segmentMs, ctx.signal);
+    const midStep = await runDecodeStep(
+      ctx.binaries.ffmpeg,
+      localPath,
+      "middle (from " + mid + "s, 10s)",
+      { seconds: 10, seekS: mid, threads: ctx.threads },
+      TIMEOUTS.segmentMs,
+      ctx.signal
+    );
     throwIfCancelled(ctx);
     steps.push(midStep);
   } else if (start.verdict !== "fail" && (dur === null || dur <= 0)) {

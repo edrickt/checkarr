@@ -1,7 +1,5 @@
 import type { DB } from "../db.js";
 
-const NL = String.fromCharCode(10);
-
 export interface SyncEntry {
   externalId: string;
   title: string;
@@ -49,7 +47,7 @@ export async function fetchArr(
     // text and parse only when non-empty so a successful delete never throws.
     text = await res.text();
   } catch (err) {
-    throw new Error("Cannot reach " + root + " : " + String((err as Error)?.message ?? err));
+    throw new Error("Cannot reach " + root + " : " + String((err as Error)?.message ?? err), { cause: err });
   }
   if (res.status === 401) throw new Error("Unauthorized (401) - check the API key");
   if (!res.ok) throw new Error(method + " " + apiPath + " failed: HTTP " + res.status + " " + res.statusText);
@@ -119,9 +117,19 @@ export async function sonarrEntries(baseUrl: string, apiKey: string): Promise<Sy
     if (typeof s.id !== "number") continue;
     let episodes: SonarrEpisode[];
     try {
-      episodes = (await fetchArr(baseUrl, apiKey, "/api/v3/episode?seriesId=" + s.id + "&includeEpisodeFile=true")) as SonarrEpisode[];
+      episodes = (await fetchArr(
+        baseUrl,
+        apiKey,
+        "/api/v3/episode?seriesId=" + s.id + "&includeEpisodeFile=true"
+      )) as SonarrEpisode[];
     } catch (err) {
-      throw new Error("while listing episodes for '" + String(s.title ?? "series " + s.id) + "': " + String((err as Error)?.message ?? err));
+      throw new Error(
+        "while listing episodes for '" +
+          String(s.title ?? "series " + s.id) +
+          "': " +
+          String((err as Error)?.message ?? err),
+        { cause: err }
+      );
     }
     for (const e of Array.isArray(episodes) ? episodes : []) {
       const f = e.episodeFile;
@@ -154,9 +162,17 @@ export async function testSource(
 ): Promise<{ ok: boolean; appName?: string; version?: string; mismatch?: boolean; error?: string }> {
   const expected = type === "radarr" ? "Radarr" : "Sonarr";
   try {
-    const status = (await fetchArr(baseUrl, apiKey, "/api/v3/system/status")) as { appName?: string; version?: string };
+    const status = (await fetchArr(baseUrl, apiKey, "/api/v3/system/status")) as {
+      appName?: string;
+      version?: string;
+    };
     const appName = status?.appName ?? undefined;
-    return { ok: true, appName, version: status?.version, mismatch: appName !== undefined && appName !== expected };
+    return {
+      ok: true,
+      appName,
+      version: status?.version,
+      mismatch: appName !== undefined && appName !== expected
+    };
   } catch (err) {
     return { ok: false, error: String((err as Error)?.message ?? err) };
   }
@@ -167,9 +183,10 @@ export async function testSource(
  * Existing verdicts are never reset; rows whose path no longer appears are removed.
  */
 export async function syncSource(db: DB, source: SourceCore): Promise<SyncResult> {
-  const entries = source.type === "radarr"
-    ? await radarrEntries(source.base_url, source.api_key)
-    : await sonarrEntries(source.base_url, source.api_key);
+  const entries =
+    source.type === "radarr"
+      ? await radarrEntries(source.base_url, source.api_key)
+      : await sonarrEntries(source.base_url, source.api_key);
   const kind = source.type === "radarr" ? "movie" : "episode";
   const now = new Date().toISOString();
 
@@ -197,13 +214,22 @@ export async function syncSource(db: DB, source: SourceCore): Promise<SyncResult
       else added++;
       insPath.run(e.path);
     }
-    const delInfo = db.prepare("DELETE FROM media_files WHERE source_id = ? AND path NOT IN (SELECT path FROM sync_paths)").run(source.id);
+    const delInfo = db
+      .prepare("DELETE FROM media_files WHERE source_id = ? AND path NOT IN (SELECT path FROM sync_paths)")
+      .run(source.id);
     db.exec("COMMIT");
     const removed = Number(delInfo.changes);
-    db.prepare("UPDATE sources SET last_sync_at = ?, last_sync_error = NULL WHERE id = ?").run(now, source.id);
+    db.prepare("UPDATE sources SET last_sync_at = ?, last_sync_error = NULL WHERE id = ?").run(
+      now,
+      source.id
+    );
     return { added, updated, removed, total: entries.length };
   } catch (err) {
-    try { db.exec("ROLLBACK"); } catch { /* not in transaction */ }
+    try {
+      db.exec("ROLLBACK");
+    } catch {
+      /* not in transaction */
+    }
     throw err;
   }
 }

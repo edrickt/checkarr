@@ -4,7 +4,9 @@ import { applyPathMappings } from "../src/lib/paths.js";
 describe("applyPathMappings", () => {
   it("rewrites a matching prefix", () => {
     const mappings = [{ match: "/movies", replace: "/data/movies" }];
-    expect(applyPathMappings("/movies/Big (2020)/file.mkv", mappings)).toBe("/data/movies/Big (2020)/file.mkv");
+    expect(applyPathMappings("/movies/Big (2020)/file.mkv", mappings)).toBe(
+      "/data/movies/Big (2020)/file.mkv"
+    );
   });
   it("first match wins", () => {
     const mappings = [
@@ -31,11 +33,15 @@ describe("applyPathMappings", () => {
   });
   it("rewrites windows-style paths to posix", () => {
     const mappings = [{ match: "E:/Movies", replace: "/Volumes/movies" }];
-    expect(applyPathMappings("E:\\Movies\\Big (2020)\\file.mkv", mappings)).toBe("/Volumes/movies/Big (2020)/file.mkv");
+    expect(applyPathMappings("E:\\Movies\\Big (2020)\\file.mkv", mappings)).toBe(
+      "/Volumes/movies/Big (2020)/file.mkv"
+    );
   });
   it("accepts match rules written with backslashes", () => {
     const mappings = [{ match: "E:\\Movies", replace: "/Volumes/movies" }];
-    expect(applyPathMappings("E:\\Movies\\Big (2020)\\file.mkv", mappings)).toBe("/Volumes/movies/Big (2020)/file.mkv");
+    expect(applyPathMappings("E:\\Movies\\Big (2020)\\file.mkv", mappings)).toBe(
+      "/Volumes/movies/Big (2020)/file.mkv"
+    );
   });
   it("respects prefix boundaries on normalized windows paths", () => {
     const mappings = [{ match: "E:/Movies", replace: "/Volumes/movies" }];

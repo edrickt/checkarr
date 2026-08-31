@@ -26,23 +26,34 @@ function makeDb(): DB {
 }
 
 function seedFile(db: DB, path = "/movies/a.mkv"): number {
-  db.prepare("INSERT INTO sources (type, name, base_url, api_key) VALUES ('radarr', 'R', 'http://127.0.0.1:1', 'k')").run();
+  db.prepare(
+    "INSERT INTO sources (type, name, base_url, api_key) VALUES ('radarr', 'R', 'http://127.0.0.1:1', 'k')"
+  ).run();
   return Number(
-    db.prepare("INSERT INTO media_files (source_id, kind, external_id, title, path) VALUES (1, 'movie', '1', 'A', ?)").run(path).lastInsertRowid
+    db
+      .prepare(
+        "INSERT INTO media_files (source_id, kind, external_id, title, path) VALUES (1, 'movie', '1', 'A', ?)"
+      )
+      .run(path).lastInsertRowid
   );
 }
 
 const healthy: CheckOutcome = { status: "healthy", detail: null, probe: null };
 
 function checkerHonoringSignal(result: CheckOutcome | Error): void {
-  checkMock.mockImplementation((_path: string, ctx: CheckContext) =>
-    new Promise<CheckOutcome>((resolve, reject) => {
-      const t = setTimeout(() => (result instanceof Error ? reject(result) : resolve(result)), 30);
-      ctx.signal?.addEventListener("abort", () => {
-        clearTimeout(t);
-        reject(new Error("scan cancelled"));
-      }, { once: true });
-    })
+  checkMock.mockImplementation(
+    (_path: string, ctx: CheckContext) =>
+      new Promise<CheckOutcome>((resolve, reject) => {
+        const t = setTimeout(() => (result instanceof Error ? reject(result) : resolve(result)), 30);
+        ctx.signal?.addEventListener(
+          "abort",
+          () => {
+            clearTimeout(t);
+            reject(new Error("scan cancelled"));
+          },
+          { once: true }
+        );
+      })
   );
 }
 
@@ -77,7 +88,9 @@ describe("ScanManager", () => {
     expect(run.total).toBe(1);
     expect(run.done).toBe(1);
     expect(run.issues).toBe(0);
-    expect((db.prepare("SELECT status FROM media_files WHERE id = ?").get(fileId) as any).status).toBe("healthy");
+    expect((db.prepare("SELECT status FROM media_files WHERE id = ?").get(fileId) as any).status).toBe(
+      "healthy"
+    );
   });
 
   it("rejects an overlapping start with 409 (the old async gate allowed two runs)", async () => {
@@ -105,7 +118,9 @@ describe("ScanManager", () => {
     expect(item.state).toBe("pending");
     const run = db.prepare("SELECT state FROM scan_runs").get() as any;
     expect(run.state).toBe("cancelled");
-    expect((db.prepare("SELECT status FROM media_files WHERE id = ?").get(fileId) as any).status).toBe("unchecked");
+    expect((db.prepare("SELECT status FROM media_files WHERE id = ?").get(fileId) as any).status).toBe(
+      "unchecked"
+    );
   });
 
   it("a checker crash marks the file suspect and counts it as an issue", async () => {
@@ -184,9 +199,16 @@ describe("resumeInterruptedScans", () => {
     const db = makeDb();
     const fileId = seedFile(db);
     const runId = Number(
-      db.prepare("INSERT INTO scan_runs (mode, scope, state, total, started_at) VALUES ('quick', 'unchecked', 'running', 1, '2026-01-01')").run().lastInsertRowid
+      db
+        .prepare(
+          "INSERT INTO scan_runs (mode, scope, state, total, started_at) VALUES ('quick', 'unchecked', 'running', 1, '2026-01-01')"
+        )
+        .run().lastInsertRowid
     );
-    db.prepare("INSERT INTO scan_items (run_id, media_file_id, state) VALUES (?, ?, 'running')").run(runId, fileId);
+    db.prepare("INSERT INTO scan_items (run_id, media_file_id, state) VALUES (?, ?, 'running')").run(
+      runId,
+      fileId
+    );
     resumeInterruptedScans(db);
     expect((db.prepare("SELECT state FROM scan_items").get() as any).state).toBe("pending");
     expect((db.prepare("SELECT state FROM scan_runs").get() as any).state).toBe("cancelled");
@@ -203,7 +225,9 @@ describe("persistOutcome", () => {
       probe: { durationS: 12.5, container: "matroska,webm", videoCodec: "h264", audioCodec: "aac" }
     });
     const row = db
-      .prepare("SELECT status, error_detail, duration_s, container, video_codec, audio_codec, probe_json, checked_at FROM media_files WHERE id = ?")
+      .prepare(
+        "SELECT status, error_detail, duration_s, container, video_codec, audio_codec, probe_json, checked_at FROM media_files WHERE id = ?"
+      )
       .get(fileId) as any;
     expect(row.status).toBe("corrupt");
     expect(row.error_detail).toContain("Invalid data");
@@ -211,7 +235,12 @@ describe("persistOutcome", () => {
     expect(row.container).toBe("matroska,webm");
     expect(row.video_codec).toBe("h264");
     expect(row.audio_codec).toBe("aac");
-    expect(JSON.parse(row.probe_json)).toEqual({ durationS: 12.5, container: "matroska,webm", videoCodec: "h264", audioCodec: "aac" });
+    expect(JSON.parse(row.probe_json)).toEqual({
+      durationS: 12.5,
+      container: "matroska,webm",
+      videoCodec: "h264",
+      audioCodec: "aac"
+    });
     expect(row.checked_at).toBeTruthy();
     const probeless = persistOutcomeProbeNull(db, fileId);
     expect(probeless).toBeUndefined();
@@ -220,7 +249,9 @@ describe("persistOutcome", () => {
 
 function persistOutcomeProbeNull(db: DB, fileId: number): void {
   persistOutcome(db, fileId, { status: "missing", detail: "File not found", probe: null });
-  const row = db.prepare("SELECT status, probe_json, duration_s FROM media_files WHERE id = ?").get(fileId) as any;
+  const row = db
+    .prepare("SELECT status, probe_json, duration_s FROM media_files WHERE id = ?")
+    .get(fileId) as any;
   expect(row.probe_json).toBeNull();
   expect(row.duration_s).toBeNull();
 }

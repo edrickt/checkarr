@@ -104,7 +104,9 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
     const id = Number(rawId);
     if (!Number.isInteger(id)) throw new ApiError(400, "invalid source id");
     const row = db
-      .prepare("SELECT id, type, name, base_url, api_key, enabled, last_sync_at, last_sync_error FROM sources WHERE id = ?")
+      .prepare(
+        "SELECT id, type, name, base_url, api_key, enabled, last_sync_at, last_sync_error FROM sources WHERE id = ?"
+      )
       .get(id) as unknown as SourceRow | undefined;
     if (!row) throw new ApiError(404, "source not found");
     return row;
@@ -135,11 +137,15 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
     const patch: Partial<AppSettings> = {};
     if (body.concurrency !== undefined) {
       const c = Number(body.concurrency);
-      if (!Number.isInteger(c) || c < 1 || c > 32) throw new ApiError(400, "concurrency must be an integer between 1 and 32");
+      if (!Number.isInteger(c) || c < 1 || c > 32)
+        throw new ApiError(400, "concurrency must be an integer between 1 and 32");
       patch.concurrency = c;
     }
-    if (body.ffmpegPath !== undefined) patch.ffmpegPath = body.ffmpegPath === null || body.ffmpegPath === "" ? null : String(body.ffmpegPath);
-    if (body.ffprobePath !== undefined) patch.ffprobePath = body.ffprobePath === null || body.ffprobePath === "" ? null : String(body.ffprobePath);
+    if (body.ffmpegPath !== undefined)
+      patch.ffmpegPath = body.ffmpegPath === null || body.ffmpegPath === "" ? null : String(body.ffmpegPath);
+    if (body.ffprobePath !== undefined)
+      patch.ffprobePath =
+        body.ffprobePath === null || body.ffprobePath === "" ? null : String(body.ffprobePath);
     if (body.pathMappings !== undefined) {
       if (!Array.isArray(body.pathMappings)) throw new ApiError(400, "pathMappings must be an array");
       if (body.pathMappings.length > 50) throw new ApiError(400, "too many path mappings (max 50)");
@@ -184,7 +190,9 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
     }
     const apiKey = String(b.apiKey ?? "").trim();
     if (!apiKey) throw new ApiError(400, "apiKey is required");
-    const res = db.prepare("INSERT INTO sources (type, name, base_url, api_key) VALUES (?, ?, ?, ?)").run(type, name, baseUrl, apiKey);
+    const res = db
+      .prepare("INSERT INTO sources (type, name, base_url, api_key) VALUES (?, ?, ?, ?)")
+      .run(type, name, baseUrl, apiKey);
     return { id: Number(res.lastInsertRowid) };
   });
 
@@ -207,7 +215,13 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
     else if (b.enabled === true || b.enabled === 1 || b.enabled === "true") enabled = 1;
     else if (b.enabled === false || b.enabled === 0 || b.enabled === "false") enabled = 0;
     else throw new ApiError(400, "enabled must be a boolean");
-    db.prepare("UPDATE sources SET name = ?, base_url = ?, api_key = ?, enabled = ? WHERE id = ?").run(name, baseUrl, storedKey, enabled, source.id);
+    db.prepare("UPDATE sources SET name = ?, base_url = ?, api_key = ?, enabled = ? WHERE id = ?").run(
+      name,
+      baseUrl,
+      storedKey,
+      enabled,
+      source.id
+    );
     return { ok: true };
   });
 
@@ -230,7 +244,9 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
       sources = [getSource(b.sourceId)];
     } else {
       sources = db
-        .prepare("SELECT id, type, name, base_url, api_key, enabled, last_sync_at, last_sync_error FROM sources WHERE enabled = 1 ORDER BY id")
+        .prepare(
+          "SELECT id, type, name, base_url, api_key, enabled, last_sync_at, last_sync_error FROM sources WHERE enabled = 1 ORDER BY id"
+        )
         .all() as unknown as SourceRow[];
     }
     if (sources.length === 0) throw new ApiError(400, "no sources to sync");
@@ -255,11 +271,15 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
     if (scans.isActive()) throw new ApiError(409, "A scan is running - wait for it to finish or cancel it");
     const b = (req.body ?? {}) as Record<string, unknown>;
     const status = typeof b.status === "string" && b.status !== "" ? b.status : "corrupt";
-    if (!PURGE_STATUSES.includes(status)) throw new ApiError(400, "status must be one of: " + PURGE_STATUSES.join(", "));
+    if (!PURGE_STATUSES.includes(status))
+      throw new ApiError(400, "status must be one of: " + PURGE_STATUSES.join(", "));
     // "all"/"healthy" delete good media, not just broken files: demand an
     // explicit opt-in so a stray or CSRF'd request cannot wipe a library.
     if ((status === "all" || status === "healthy") && b.confirm !== true) {
-      throw new ApiError(400, "purging '" + status + "' deletes files that may be fine - send { confirm: true } to proceed");
+      throw new ApiError(
+        400,
+        "purging '" + status + "' deletes files that may be fine - send { confirm: true } to proceed"
+      );
     }
     let sourceId: number | undefined;
     if (b.sourceId !== undefined && b.sourceId !== null) {
@@ -296,8 +316,18 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
 
   // ---- stats ----
   app.get("/api/stats", async () => {
-    const rows = db.prepare("SELECT status, COUNT(*) AS n FROM media_files GROUP BY status").all() as { status: string; n: number }[];
-    const byStatus: Record<string, number> = { unchecked: 0, healthy: 0, suspect: 0, corrupt: 0, missing: 0, unreachable: 0 };
+    const rows = db.prepare("SELECT status, COUNT(*) AS n FROM media_files GROUP BY status").all() as {
+      status: string;
+      n: number;
+    }[];
+    const byStatus: Record<string, number> = {
+      unchecked: 0,
+      healthy: 0,
+      suspect: 0,
+      corrupt: 0,
+      missing: 0,
+      unreachable: 0
+    };
     let total = 0;
     for (const r of rows) {
       byStatus[r.status] = Number(r.n);
@@ -313,9 +343,14 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
         .get() ?? null;
     // Per-source breakdown so the dashboard can scope buttons to one server.
     const sourceRows = db
-      .prepare("SELECT source_id AS sourceId, status, COUNT(*) AS n FROM media_files GROUP BY source_id, status")
+      .prepare(
+        "SELECT source_id AS sourceId, status, COUNT(*) AS n FROM media_files GROUP BY source_id, status"
+      )
       .all() as { sourceId: number; status: string; n: number }[];
-    const bySourceMap = new Map<number, { sourceId: number; total: number; byStatus: Record<string, number> }>();
+    const bySourceMap = new Map<
+      number,
+      { sourceId: number; total: number; byStatus: Record<string, number> }
+    >();
     for (const r of sourceRows) {
       const group = bySourceMap.get(r.sourceId) ?? {
         sourceId: r.sourceId,
@@ -348,7 +383,9 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
     }
     if (q.q) {
       const needle = "%" + escapeLike(q.q) + "%";
-      where.push("(mf.title LIKE ? ESCAPE '!' OR mf.subtitle LIKE ? ESCAPE '!' OR mf.path LIKE ? ESCAPE '!')");
+      where.push(
+        "(mf.title LIKE ? ESCAPE '!' OR mf.subtitle LIKE ? ESCAPE '!' OR mf.path LIKE ? ESCAPE '!')"
+      );
       params.push(needle, needle, needle);
     }
     const whereSql = where.length > 0 ? " WHERE " + where.join(" AND ") : "";
@@ -361,14 +398,21 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
     };
     const sortCol = sortMap[q.sort ?? "id"] ?? sortMap.id;
     const dir = q.dir === "asc" ? "ASC" : "DESC";
-    const total = Number((db.prepare("SELECT COUNT(*) AS n FROM media_files mf" + whereSql).get(...params) as { n: number }).n);
+    const total = Number(
+      (db.prepare("SELECT COUNT(*) AS n FROM media_files mf" + whereSql).get(...params) as { n: number }).n
+    );
     const rows = db
       .prepare(
         "SELECT mf.id, mf.source_id AS sourceId, s.type AS sourceType, s.name AS sourceName, mf.kind, mf.title, mf.subtitle," +
           " mf.path, mf.size_bytes AS sizeBytes, mf.quality, mf.status, mf.duration_s AS durationS, mf.container," +
           " mf.video_codec AS videoCodec, mf.audio_codec AS audioCodec, mf.error_detail AS errorDetail, mf.checked_at AS checkedAt" +
           " FROM media_files mf JOIN sources s ON s.id = mf.source_id" +
-          whereSql + " ORDER BY " + sortCol + " " + dir + " LIMIT ? OFFSET ?"
+          whereSql +
+          " ORDER BY " +
+          sortCol +
+          " " +
+          dir +
+          " LIMIT ? OFFSET ?"
       )
       .all(...params, pageSize, (page - 1) * pageSize);
     return { items: rows, total, page, pageSize };
@@ -404,10 +448,13 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
     const id = Number((req.params as { id: string }).id);
     if (!Number.isInteger(id)) throw new ApiError(400, "invalid file id");
     const row = db
-      .prepare("SELECT mf.id, s.enabled FROM media_files mf JOIN sources s ON s.id = mf.source_id WHERE mf.id = ?")
+      .prepare(
+        "SELECT mf.id, s.enabled FROM media_files mf JOIN sources s ON s.id = mf.source_id WHERE mf.id = ?"
+      )
       .get(id) as { id: number; enabled: number } | undefined;
     if (!row) throw new ApiError(404, "file not found");
-    if (!row.enabled) throw new ApiError(409, "this file's source is disabled - enable it in Settings to purge");
+    if (!row.enabled)
+      throw new ApiError(409, "this file's source is disabled - enable it in Settings to purge");
     return purgeFiles(db, { fileId: id });
   });
 
@@ -415,7 +462,8 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
     if (scans.isActive()) throw new ApiError(409, "A scan is running - wait for it to finish or cancel it");
     const id = Number((req.params as { id: string }).id);
     if (!Number.isInteger(id)) throw new ApiError(400, "invalid file id");
-    const file = db.prepare("SELECT id, path FROM media_files WHERE id = ?").get(id) as { id: number; path: string } | undefined;
+    const file = db.prepare("SELECT id, path FROM media_files WHERE id = ?").get(id) as
+      { id: number; path: string } | undefined;
     if (!file) throw new ApiError(404, "file not found");
     const settings = getSettings(db);
     const binaries = resolveBinaries(settings);
@@ -430,10 +478,11 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
   app.get("/api/files/:id/stream", async (req, reply) => {
     const id = Number((req.params as { id: string }).id);
     if (!Number.isInteger(id)) throw new ApiError(400, "invalid file id");
-    const row = db.prepare("SELECT path FROM media_files WHERE id = ?").get(id) as { path: string } | undefined;
+    const row = db.prepare("SELECT path FROM media_files WHERE id = ?").get(id) as
+      { path: string } | undefined;
     if (!row) throw new ApiError(404, "file not found");
     const localPath = resolveLocalPath(row.path, getSettings(db).pathMappings);
-    let size = 0;
+    let size: number;
     try {
       const st = await fs.promises.stat(localPath);
       if (!st.isFile()) throw new ApiError(404, "not a regular file");
@@ -445,10 +494,17 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
     const type = contentTypeFor(localPath);
     const range = parseRange(req.headers.range, size);
     if (range === "invalid") {
-      return reply.code(416).header("content-range", "bytes */" + size).send();
+      return reply
+        .code(416)
+        .header("content-range", "bytes */" + size)
+        .send();
     }
     if (range === "full") {
-      reply.code(200).header("content-type", type).header("accept-ranges", "bytes").header("content-length", size);
+      reply
+        .code(200)
+        .header("content-type", type)
+        .header("accept-ranges", "bytes")
+        .header("content-length", size);
       return reply.send(fs.createReadStream(localPath));
     }
     reply

@@ -6,8 +6,10 @@ import { formatWhen } from "../utils";
 
 const EMPTY_FORM: SourceInput = { type: "radarr", name: "", baseUrl: "", apiKey: "" };
 
-const INPUT = "w-full border border-neutral-300 bg-white px-3 py-1.5 text-sm placeholder:text-neutral-400 focus:border-neutral-900 focus:outline-none";
-const BTN = "border border-neutral-300 bg-white px-2.5 py-1 text-xs text-neutral-700 hover:border-neutral-900 hover:text-neutral-900 disabled:opacity-40";
+const INPUT =
+  "w-full border border-neutral-300 bg-white px-3 py-1.5 text-sm placeholder:text-neutral-400 focus:border-neutral-900 focus:outline-none";
+const BTN =
+  "border border-neutral-300 bg-white px-2.5 py-1 text-xs text-neutral-700 hover:border-neutral-900 hover:text-neutral-900 disabled:opacity-40";
 const BTN_PRIMARY = "bg-neutral-900 px-3 py-1.5 text-sm text-white hover:bg-neutral-700 disabled:opacity-40";
 
 export default function SettingsPage() {
@@ -71,8 +73,7 @@ export default function SettingsPage() {
   });
 
   const updateSource = useMutation({
-    mutationFn: (s: Source) =>
-      api.updateSource(s.id, { name: s.name, baseUrl: s.baseUrl, apiKey: s.apiKey }),
+    mutationFn: (s: Source) => api.updateSource(s.id, { name: s.name, baseUrl: s.baseUrl, apiKey: s.apiKey }),
     onSuccess: () => {
       notify("Source updated");
       setEditing(null);
@@ -98,7 +99,11 @@ export default function SettingsPage() {
       setTestResults((prev) => ({
         ...prev,
         [id]: r.ok
-          ? "OK: " + (r.appName ?? "unknown app") + " " + (r.version ?? "") + (r.mismatch ? " (warning: app type mismatch)" : "")
+          ? "OK: " +
+            (r.appName ?? "unknown app") +
+            " " +
+            (r.version ?? "") +
+            (r.mismatch ? " (warning: app type mismatch)" : "")
           : "FAILED: " + (r.error ?? "unknown error")
       }));
     },
@@ -109,7 +114,18 @@ export default function SettingsPage() {
     mutationFn: (id: number) => api.sync(id),
     onSuccess: (data) => {
       const r = data.results[0];
-      notify(r && r.ok ? r.name + ": +" + (r.added ?? 0) + " new, " + (r.updated ?? 0) + " updated, -" + (r.removed ?? 0) + " removed" : "Sync failed: " + (r?.error ?? "?"));
+      notify(
+        r && r.ok
+          ? r.name +
+              ": +" +
+              (r.added ?? 0) +
+              " new, " +
+              (r.updated ?? 0) +
+              " updated, -" +
+              (r.removed ?? 0) +
+              " removed"
+          : "Sync failed: " + (r?.error ?? "?")
+      );
       invalidate();
       queryClient.invalidateQueries({ queryKey: ["files"] });
       queryClient.invalidateQueries({ queryKey: ["stats"] });
@@ -126,11 +142,13 @@ export default function SettingsPage() {
     <div className="space-y-8">
       {settings.isError && (
         <div className="border border-red-300 px-4 py-3 text-sm text-red-700">
-          Could not load settings: {(settings.error as Error)?.message ?? "unknown error"} - saving is disabled so your
-          real configuration is not overwritten.
+          Could not load settings: {(settings.error as Error)?.message ?? "unknown error"} - saving is
+          disabled so your real configuration is not overwritten.
         </div>
       )}
-      {message && <div className="border border-neutral-200 px-4 py-3 text-sm text-neutral-600">{message}</div>}
+      {message && (
+        <div className="border border-neutral-200 px-4 py-3 text-sm text-neutral-600">{message}</div>
+      )}
 
       <section>
         <h2 className="mb-3 text-xs font-medium uppercase tracking-wide text-neutral-400">Sources</h2>
@@ -140,18 +158,43 @@ export default function SettingsPage() {
               {editing && editing.id === s.id ? (
                 <div className="space-y-2">
                   <div className="flex flex-wrap gap-2">
-                    <span className={BTN + " cursor-default"} title="The source type is fixed at creation - delete and re-add to change it">
+                    <span
+                      className={BTN + " cursor-default"}
+                      title="The source type is fixed at creation - delete and re-add to change it"
+                    >
                       {editing.type}
                     </span>
-                    <input value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} placeholder="Name" className={INPUT + " max-w-xs"} />
+                    <input
+                      value={editing.name}
+                      onChange={(e) => setEditing({ ...editing, name: e.target.value })}
+                      placeholder="Name"
+                      className={INPUT + " max-w-xs"}
+                    />
                   </div>
-                  <input value={editing.baseUrl} onChange={(e) => setEditing({ ...editing, baseUrl: e.target.value })} placeholder="http://localhost:7878" className={INPUT} />
-                  <input value={editing.apiKey} onChange={(e) => setEditing({ ...editing, apiKey: e.target.value })} placeholder="API key" title="Saved key is masked - retype it to replace" className={INPUT} />
+                  <input
+                    value={editing.baseUrl}
+                    onChange={(e) => setEditing({ ...editing, baseUrl: e.target.value })}
+                    placeholder="http://localhost:7878"
+                    className={INPUT}
+                  />
+                  <input
+                    value={editing.apiKey}
+                    onChange={(e) => setEditing({ ...editing, apiKey: e.target.value })}
+                    placeholder="API key"
+                    title="Saved key is masked - retype it to replace"
+                    className={INPUT}
+                  />
                   <div className="flex gap-2">
-                    <button onClick={() => updateSource.mutate(editing)} disabled={updateSource.isPending} className={BTN}>
+                    <button
+                      onClick={() => updateSource.mutate(editing)}
+                      disabled={updateSource.isPending}
+                      className={BTN}
+                    >
                       {updateSource.isPending ? "Saving..." : "Save"}
                     </button>
-                    <button onClick={() => setEditing(null)} className={BTN}>Cancel</button>
+                    <button onClick={() => setEditing(null)} className={BTN}>
+                      Cancel
+                    </button>
                   </div>
                 </div>
               ) : (
@@ -167,21 +210,37 @@ export default function SettingsPage() {
                     {s.lastSyncError && <span className="text-red-600"> - {s.lastSyncError}</span>}
                   </div>
                   {testResults[s.id] && (
-                    <div className={"mt-1 text-xs " + (testResults[s.id].startsWith("OK") ? "text-emerald-600" : "text-red-600")}>
+                    <div
+                      className={
+                        "mt-1 text-xs " +
+                        (testResults[s.id].startsWith("OK") ? "text-emerald-600" : "text-red-600")
+                      }
+                    >
                       {testResults[s.id]}
                     </div>
                   )}
                   <div className="mt-2 flex flex-wrap gap-2">
-                    <button onClick={() => testSource.mutate(s.id)} disabled={testingId === s.id} className={BTN}>
+                    <button
+                      onClick={() => testSource.mutate(s.id)}
+                      disabled={testingId === s.id}
+                      className={BTN}
+                    >
                       {testingId === s.id ? "Testing..." : "Test"}
                     </button>
-                    <button onClick={() => syncSource.mutate(s.id)} disabled={syncingId === s.id} className={BTN}>
+                    <button
+                      onClick={() => syncSource.mutate(s.id)}
+                      disabled={syncingId === s.id}
+                      className={BTN}
+                    >
                       {syncingId === s.id ? "Syncing..." : "Sync"}
                     </button>
-                    <button onClick={() => setEditing(s)} className={BTN}>Edit</button>
+                    <button onClick={() => setEditing(s)} className={BTN}>
+                      Edit
+                    </button>
                     <button
                       onClick={() => {
-                        if (window.confirm("Delete source '" + s.name + "' and its tracked files?")) deleteSource.mutate(s.id);
+                        if (window.confirm("Delete source '" + s.name + "' and its tracked files?"))
+                          deleteSource.mutate(s.id);
                       }}
                       disabled={deletingId === s.id}
                       className={BTN + " hover:border-red-600 hover:text-red-600"}
@@ -201,22 +260,47 @@ export default function SettingsPage() {
         <div className="mt-4 border border-dashed border-neutral-300 p-4">
           <div className="mb-2 text-sm font-medium">Add a source</div>
           <div className="grid gap-2 sm:grid-cols-2">
-            <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })} className={INPUT}>
+            <select
+              value={form.type}
+              onChange={(e) => setForm({ ...form, type: e.target.value })}
+              className={INPUT}
+            >
               <option value="radarr">radarr</option>
               <option value="sonarr">sonarr</option>
             </select>
-            <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Name (e.g. Main Radarr)" className={INPUT} />
-            <input value={form.baseUrl} onChange={(e) => setForm({ ...form, baseUrl: e.target.value })} placeholder="http://localhost:7878" className={INPUT} />
-            <input value={form.apiKey} onChange={(e) => setForm({ ...form, apiKey: e.target.value })} placeholder="API key (Settings > General in *arr)" className={INPUT} />
+            <input
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              placeholder="Name (e.g. Main Radarr)"
+              className={INPUT}
+            />
+            <input
+              value={form.baseUrl}
+              onChange={(e) => setForm({ ...form, baseUrl: e.target.value })}
+              placeholder="http://localhost:7878"
+              className={INPUT}
+            />
+            <input
+              value={form.apiKey}
+              onChange={(e) => setForm({ ...form, apiKey: e.target.value })}
+              placeholder="API key (Settings > General in *arr)"
+              className={INPUT}
+            />
           </div>
-          <button onClick={() => addSource.mutate()} disabled={addSource.isPending} className={BTN_PRIMARY + " mt-3"}>
+          <button
+            onClick={() => addSource.mutate()}
+            disabled={addSource.isPending}
+            className={BTN_PRIMARY + " mt-3"}
+          >
             {addSource.isPending ? "Adding..." : "Add source"}
           </button>
         </div>
       </section>
 
       <section>
-        <h2 className="mb-3 text-xs font-medium uppercase tracking-wide text-neutral-400">Checker settings</h2>
+        <h2 className="mb-3 text-xs font-medium uppercase tracking-wide text-neutral-400">
+          Checker settings
+        </h2>
         {settings.data && !settings.data.ffmpegAvailable && (
           <div className="mb-3 border border-red-300 px-3 py-2 text-xs text-red-700">
             {settings.data.ffmpegError}
@@ -224,7 +308,8 @@ export default function SettingsPage() {
         )}
         {settings.data && (
           <div className="mb-3 text-xs text-neutral-400">
-            resolved: ffmpeg = <span className="font-mono text-neutral-600">{settings.data.resolved.ffmpeg}</span>, ffprobe ={" "}
+            resolved: ffmpeg ={" "}
+            <span className="font-mono text-neutral-600">{settings.data.resolved.ffmpeg}</span>, ffprobe ={" "}
             <span className="font-mono text-neutral-600">{settings.data.resolved.ffprobe}</span>
           </div>
         )}
@@ -242,17 +327,31 @@ export default function SettingsPage() {
           </label>
           <label className="text-xs text-neutral-400">
             ffmpeg path override
-            <input value={ffmpegPath} onChange={(e) => setFfmpegPath(e.target.value)} placeholder="bundled binary" className={INPUT + " mt-1"} />
+            <input
+              value={ffmpegPath}
+              onChange={(e) => setFfmpegPath(e.target.value)}
+              placeholder="bundled binary"
+              className={INPUT + " mt-1"}
+            />
           </label>
           <label className="text-xs text-neutral-400">
             ffprobe path override
-            <input value={ffprobePath} onChange={(e) => setFfprobePath(e.target.value)} placeholder="bundled binary" className={INPUT + " mt-1"} />
+            <input
+              value={ffprobePath}
+              onChange={(e) => setFfprobePath(e.target.value)}
+              placeholder="bundled binary"
+              className={INPUT + " mt-1"}
+            />
           </label>
         </div>
         <button
           onClick={() => save.mutate()}
           disabled={save.isPending || settings.isLoading || settings.isError}
-          title={settings.isError ? "Settings failed to load - fixing a stale form would overwrite your config" : undefined}
+          title={
+            settings.isError
+              ? "Settings failed to load - fixing a stale form would overwrite your config"
+              : undefined
+          }
           className={BTN_PRIMARY + " mt-3"}
         >
           {save.isPending ? "Saving..." : "Save settings"}
@@ -262,20 +361,25 @@ export default function SettingsPage() {
       <section>
         <h2 className="text-xs font-medium uppercase tracking-wide text-neutral-400">Path mappings</h2>
         <p className="mb-3 mt-1 text-xs text-neutral-400">
-          Rewrites paths reported by Radarr/Sonarr (e.g. container paths) to paths readable by Checkarr. First matching rule wins.
+          Rewrites paths reported by Radarr/Sonarr (e.g. container paths) to paths readable by Checkarr. First
+          matching rule wins.
         </p>
         {mappings.map((m, i) => (
           <div key={i} className="mb-2 flex flex-wrap items-center gap-2">
             <input
               value={m.match}
-              onChange={(e) => setMappings(mappings.map((x, j) => (j === i ? { ...x, match: e.target.value } : x)))}
+              onChange={(e) =>
+                setMappings(mappings.map((x, j) => (j === i ? { ...x, match: e.target.value } : x)))
+              }
               placeholder="/movies (from *arr)"
               className={INPUT + " max-w-xs font-mono"}
             />
             <span className="text-neutral-400">&#8594;</span>
             <input
               value={m.replace}
-              onChange={(e) => setMappings(mappings.map((x, j) => (j === i ? { ...x, replace: e.target.value } : x)))}
+              onChange={(e) =>
+                setMappings(mappings.map((x, j) => (j === i ? { ...x, replace: e.target.value } : x)))
+              }
               placeholder="/data/movies (local)"
               className={INPUT + " max-w-xs font-mono"}
             />

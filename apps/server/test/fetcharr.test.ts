@@ -9,10 +9,26 @@ describe("fetchArr body handling", () => {
   beforeAll(async () => {
     server = createServer((req, res) => {
       const u = new URL(req.url ?? "/", "http://localhost");
-      if (u.pathname === "/empty204") { res.writeHead(204); res.end(); return; }
-      if (u.pathname === "/empty200") { res.writeHead(200); res.end(); return; }
-      if (u.pathname === "/html") { res.writeHead(200, { "content-type": "text/html" }); res.end("<html>auth proxy</html>"); return; }
-      if (u.pathname === "/json") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true })); return; }
+      if (u.pathname === "/empty204") {
+        res.writeHead(204);
+        res.end();
+        return;
+      }
+      if (u.pathname === "/empty200") {
+        res.writeHead(200);
+        res.end();
+        return;
+      }
+      if (u.pathname === "/html") {
+        res.writeHead(200, { "content-type": "text/html" });
+        res.end("<html>auth proxy</html>");
+        return;
+      }
+      if (u.pathname === "/json") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true }));
+        return;
+      }
       res.writeHead(404).end("{}");
     });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));

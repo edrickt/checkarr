@@ -23,12 +23,18 @@ beforeAll(async () => {
   db = new DatabaseSync(":memory:");
   db.exec("PRAGMA foreign_keys = ON;");
   migrate(db);
-  db.prepare("INSERT INTO sources (type, name, base_url, api_key) VALUES ('radarr', 'R', 'http://127.0.0.1:1', 'secret-key-1234')").run();
+  db.prepare(
+    "INSERT INTO sources (type, name, base_url, api_key) VALUES ('radarr', 'R', 'http://127.0.0.1:1', 'secret-key-1234')"
+  ).run();
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "checkarr-routes-"));
   const mediaPath = path.join(dir, "media.mp4");
   fs.writeFileSync(mediaPath, "0123456789abcdef");
   fileId = Number(
-    db.prepare("INSERT INTO media_files (source_id, kind, external_id, title, path) VALUES (1, 'movie', '1', 'A', ?)").run(mediaPath).lastInsertRowid
+    db
+      .prepare(
+        "INSERT INTO media_files (source_id, kind, external_id, title, path) VALUES (1, 'movie', '1', 'A', ?)"
+      )
+      .run(mediaPath).lastInsertRowid
   );
   app = await buildApp(db);
 });
@@ -50,7 +56,12 @@ describe("host + cross-site guards", () => {
   });
 
   it("rejects cross-origin writes but allows same-origin", async () => {
-    const bad = await app.inject({ method: "POST", url: "/api/scan/cancel", headers: { origin: "http://evil.com" }, payload: {} });
+    const bad = await app.inject({
+      method: "POST",
+      url: "/api/scan/cancel",
+      headers: { origin: "http://evil.com" },
+      payload: {}
+    });
     expect(bad.statusCode).toBe(403);
     const good = await app.inject({
       method: "POST",
@@ -63,12 +74,22 @@ describe("host + cross-site guards", () => {
   });
 
   it("rejects browser-labelled cross-site writes (Sec-Fetch-Site)", async () => {
-    const r = await app.inject({ method: "POST", url: "/api/scan/cancel", headers: { "sec-fetch-site": "cross-site" }, payload: {} });
+    const r = await app.inject({
+      method: "POST",
+      url: "/api/scan/cancel",
+      headers: { "sec-fetch-site": "cross-site" },
+      payload: {}
+    });
     expect(r.statusCode).toBe(403);
   });
 
   it("blocks text/plain write bodies (the no-cors CSRF vector)", async () => {
-    const r = await app.inject({ method: "POST", url: "/api/purge", payload: "x", headers: { "content-type": "text/plain" } });
+    const r = await app.inject({
+      method: "POST",
+      url: "/api/purge",
+      payload: "x",
+      headers: { "content-type": "text/plain" }
+    });
     expect(r.statusCode).toBe(415);
   });
 });
@@ -81,20 +102,32 @@ describe("stream + Range", () => {
   });
 
   it("serves an explicit range with 206 + content-range", async () => {
-    const r = await app.inject({ method: "GET", url: "/api/files/" + fileId + "/stream", headers: { range: "bytes=2-5" } });
+    const r = await app.inject({
+      method: "GET",
+      url: "/api/files/" + fileId + "/stream",
+      headers: { range: "bytes=2-5" }
+    });
     expect(r.statusCode).toBe(206);
     expect(r.body).toBe("2345");
     expect(r.headers["content-range"]).toBe("bytes 2-5/16");
   });
 
   it("clamps an oversized end like a player would send", async () => {
-    const r = await app.inject({ method: "GET", url: "/api/files/" + fileId + "/stream", headers: { range: "bytes=10-999" } });
+    const r = await app.inject({
+      method: "GET",
+      url: "/api/files/" + fileId + "/stream",
+      headers: { range: "bytes=10-999" }
+    });
     expect(r.statusCode).toBe(206);
     expect(r.body).toBe("abcdef");
   });
 
   it("answers 416 on unsatisfiable ranges", async () => {
-    const r = await app.inject({ method: "GET", url: "/api/files/" + fileId + "/stream", headers: { range: "bytes=99-" } });
+    const r = await app.inject({
+      method: "GET",
+      url: "/api/files/" + fileId + "/stream",
+      headers: { range: "bytes=99-" }
+    });
     expect(r.statusCode).toBe(416);
     expect(r.headers["content-range"]).toBe("bytes */16");
   });
@@ -103,9 +136,17 @@ describe("stream + Range", () => {
     const emptyPath = path.join(dir, "empty.mp4");
     fs.writeFileSync(emptyPath, "");
     const eid = Number(
-      db.prepare("INSERT INTO media_files (source_id, kind, external_id, title, path) VALUES (1, 'movie', '2', 'Empty', ?)").run(emptyPath).lastInsertRowid
+      db
+        .prepare(
+          "INSERT INTO media_files (source_id, kind, external_id, title, path) VALUES (1, 'movie', '2', 'Empty', ?)"
+        )
+        .run(emptyPath).lastInsertRowid
     );
-    const r = await app.inject({ method: "GET", url: "/api/files/" + eid + "/stream", headers: { range: "bytes=-1" } });
+    const r = await app.inject({
+      method: "GET",
+      url: "/api/files/" + eid + "/stream",
+      headers: { range: "bytes=-1" }
+    });
     expect(r.statusCode).toBe(416);
   });
 
@@ -117,8 +158,12 @@ describe("stream + Range", () => {
 
 describe("validation", () => {
   it("rejects out-of-range concurrency", async () => {
-    expect((await app.inject({ method: "PUT", url: "/api/settings", payload: { concurrency: 0 } })).statusCode).toBe(400);
-    expect((await app.inject({ method: "PUT", url: "/api/settings", payload: { concurrency: 33 } })).statusCode).toBe(400);
+    expect(
+      (await app.inject({ method: "PUT", url: "/api/settings", payload: { concurrency: 0 } })).statusCode
+    ).toBe(400);
+    expect(
+      (await app.inject({ method: "PUT", url: "/api/settings", payload: { concurrency: 33 } })).statusCode
+    ).toBe(400);
   });
 
   it("rejects unknown scan scopes instead of coercing them", async () => {
@@ -158,7 +203,9 @@ describe("masked api keys", () => {
       payload: { name: "Renamed", apiKey: "\u2022\u2022\u2022\u20221234" }
     });
     expect(put.statusCode).toBe(200);
-    expect((db.prepare("SELECT api_key FROM sources WHERE id = 1").get() as any).api_key).toBe("secret-key-1234");
+    expect((db.prepare("SELECT api_key FROM sources WHERE id = 1").get() as any).api_key).toBe(
+      "secret-key-1234"
+    );
     expect((db.prepare("SELECT name FROM sources WHERE id = 1").get() as any).name).toBe("Renamed");
   });
 });

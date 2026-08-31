@@ -15,14 +15,14 @@ ffprobe parses the container, then ffmpeg decodes the video and audio streams in
 
 Verdicts:
 
-| Status      | Meaning                                                       |
-|-------------|---------------------------------------------------------------|
-| healthy     | probe + all decode checks clean                               |
-| corrupt     | container unparseable or a decode check failed                |
-| suspect     | recoverable decode errors, unknown duration, or a timeout     |
-| missing     | the *arr library references a file that no longer exists      |
-| unreachable | the file exists but is not readable (permissions)             |
-| unchecked   | synced but not checked yet                                    |
+| Status      | Meaning                                                   |
+| ----------- | --------------------------------------------------------- |
+| healthy     | probe + all decode checks clean                           |
+| corrupt     | container unparseable or a decode check failed            |
+| suspect     | recoverable decode errors, unknown duration, or a timeout |
+| missing     | the *arr library references a file that no longer exists  |
+| unreachable | the file exists but is not readable (permissions)         |
+| unchecked   | synced but not checked yet                                |
 
 Checkarr keeps the ffmpeg findings per file, so you can see exactly what the decoder reported.
 

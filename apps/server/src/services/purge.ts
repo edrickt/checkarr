@@ -73,7 +73,11 @@ async function purgeRadarr(source: PurgeRow, entries: PurgeRow[]): Promise<Purge
   await mapLimit(entries, 4, async (e) => {
     const movieId = Number(e.external_id);
     try {
-      const movie = (await fetchArr(source.base_url, source.api_key, "/api/v3/movie/" + movieId)) as RadarrMovieDetail;
+      const movie = (await fetchArr(
+        source.base_url,
+        source.api_key,
+        "/api/v3/movie/" + movieId
+      )) as RadarrMovieDetail;
       const file = movie?.movieFile ?? null;
       const fileId = file?.id;
       if (!Number.isInteger(fileId)) {
@@ -86,7 +90,10 @@ async function purgeRadarr(source: PurgeRow, entries: PurgeRow[]): Promise<Purge
       if (currentPath === null || !sameArrPath(currentPath, e.path)) {
         result.skipped++;
         result.errors.push(
-          e.path + ": *arr now points at " + (currentPath ?? "no file") + " - re-sync and re-scan, then purge again"
+          e.path +
+            ": *arr now points at " +
+            (currentPath ?? "no file") +
+            " - re-sync and re-scan, then purge again"
         );
         return;
       }
@@ -145,7 +152,10 @@ async function purgeSonarr(source: PurgeRow, entries: PurgeRow[]): Promise<Purge
       if (currentPath === null || !sameArrPath(currentPath, e.path)) {
         result.skipped++;
         result.errors.push(
-          e.path + ": *arr now points at " + (currentPath ?? "no file") + " - re-sync and re-scan, then purge again"
+          e.path +
+            ": *arr now points at " +
+            (currentPath ?? "no file") +
+            " - re-sync and re-scan, then purge again"
         );
         return;
       }
@@ -218,7 +228,9 @@ export async function purgeFiles(db: DB, filter: PurgeFilter = {}): Promise<Purg
     // One failing source must not hide what already happened elsewhere or
     // skip the remaining sources: report the failure and keep going.
     try {
-      results.push(source.type === "sonarr" ? await purgeSonarr(source, entries) : await purgeRadarr(source, entries));
+      results.push(
+        source.type === "sonarr" ? await purgeSonarr(source, entries) : await purgeRadarr(source, entries)
+      );
     } catch (err) {
       results.push({
         sourceId: source.source_id,

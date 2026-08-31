@@ -5,7 +5,8 @@ import type { MediaFile } from "../types";
 import { formatBytes, formatDuration, formatWhen } from "../utils";
 import StatusBadge from "./StatusBadge";
 
-const BTN = "border border-neutral-300 bg-white px-2.5 py-1 text-xs text-neutral-700 hover:border-neutral-900 hover:text-neutral-900 disabled:opacity-40";
+const BTN =
+  "border border-neutral-300 bg-white px-2.5 py-1 text-xs text-neutral-700 hover:border-neutral-900 hover:text-neutral-900 disabled:opacity-40";
 
 export default function DetailModal({ file, onClose }: { file: MediaFile; onClose: () => void }) {
   const queryClient = useQueryClient();
@@ -38,7 +39,13 @@ export default function DetailModal({ file, onClose }: { file: MediaFile; onClos
   };
 
   return (
-    <div role="dialog" aria-modal="true" aria-label={f.title} className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-950/40 p-4" onClick={onClose}>
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={f.title}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-950/40 p-4"
+      onClick={onClose}
+    >
       <div
         className="max-h-[90vh] w-full max-w-3xl overflow-y-auto border border-neutral-200 bg-white p-4"
         onClick={(e) => e.stopPropagation()}
@@ -46,7 +53,9 @@ export default function DetailModal({ file, onClose }: { file: MediaFile; onClos
         <div className="mb-3 flex items-start justify-between gap-4">
           <div>
             <h2 className="text-base font-semibold">{f.title}</h2>
-            <p className="text-sm text-neutral-500">{f.subtitle ?? (f.kind === "movie" ? "Movie" : "Episode")}</p>
+            <p className="text-sm text-neutral-500">
+              {f.subtitle ?? (f.kind === "movie" ? "Movie" : "Episode")}
+            </p>
           </div>
           <button onClick={onClose} className="text-sm text-neutral-400 hover:text-neutral-900">
             Close
@@ -61,7 +70,9 @@ export default function DetailModal({ file, onClose }: { file: MediaFile; onClos
           preload="metadata"
           className="mb-3 max-h-72 w-full bg-black"
           onError={() =>
-            setVideoError("Browser playback failed. The codec may be unsupported by the browser (e.g. DTS audio) - the ffmpeg verdict is the source of truth.")
+            setVideoError(
+              "Browser playback failed. The codec may be unsupported by the browser (e.g. DTS audio) - the ffmpeg verdict is the source of truth."
+            )
           }
           onLoadedMetadata={() => setVideoError(null)}
         />
@@ -73,9 +84,13 @@ export default function DetailModal({ file, onClose }: { file: MediaFile; onClos
             {recheck.isPending ? "Checking..." : "Re-check now"}
           </button>
           {recheck.data && (
-            <span className="text-xs text-neutral-500">result: <span className="capitalize text-neutral-900">{recheck.data.status}</span></span>
+            <span className="text-xs text-neutral-500">
+              result: <span className="capitalize text-neutral-900">{recheck.data.status}</span>
+            </span>
           )}
-          {recheck.error instanceof Error && <span className="text-xs text-red-600">{recheck.error.message}</span>}
+          {recheck.error instanceof Error && (
+            <span className="text-xs text-red-600">{recheck.error.message}</span>
+          )}
         </div>
         {videoError && (
           <div className="mb-3 border border-amber-300 px-3 py-2 text-xs text-amber-700">{videoError}</div>
@@ -85,14 +100,30 @@ export default function DetailModal({ file, onClose }: { file: MediaFile; onClos
           <div className="flex items-center gap-2">
             <StatusBadge status={f.status} />
           </div>
-          <div><span className="text-neutral-400">source:</span> {f.sourceName} ({f.sourceType})</div>
-          <div><span className="text-neutral-400">quality:</span> {f.quality ?? "-"}</div>
-          <div><span className="text-neutral-400">size:</span> {formatBytes(f.sizeBytes)}</div>
-          <div><span className="text-neutral-400">duration:</span> {formatDuration(f.durationS)}</div>
-          <div><span className="text-neutral-400">container:</span> {f.container ?? "-"}</div>
-          <div><span className="text-neutral-400">video:</span> {f.videoCodec ?? "-"}</div>
-          <div><span className="text-neutral-400">audio:</span> {f.audioCodec ?? "-"}</div>
-          <div><span className="text-neutral-400">checked:</span> {formatWhen(f.checkedAt)}</div>
+          <div>
+            <span className="text-neutral-400">source:</span> {f.sourceName} ({f.sourceType})
+          </div>
+          <div>
+            <span className="text-neutral-400">quality:</span> {f.quality ?? "-"}
+          </div>
+          <div>
+            <span className="text-neutral-400">size:</span> {formatBytes(f.sizeBytes)}
+          </div>
+          <div>
+            <span className="text-neutral-400">duration:</span> {formatDuration(f.durationS)}
+          </div>
+          <div>
+            <span className="text-neutral-400">container:</span> {f.container ?? "-"}
+          </div>
+          <div>
+            <span className="text-neutral-400">video:</span> {f.videoCodec ?? "-"}
+          </div>
+          <div>
+            <span className="text-neutral-400">audio:</span> {f.audioCodec ?? "-"}
+          </div>
+          <div>
+            <span className="text-neutral-400">checked:</span> {formatWhen(f.checkedAt)}
+          </div>
         </dl>
 
         <div className="mt-3">
