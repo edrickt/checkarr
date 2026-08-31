@@ -5,3 +5,7 @@ allowBuilds:
   esbuild: true
   ffmpeg-static: true
   ffprobe-static: true
+# vitest resolves its own vite; pin it to the app's major so vitest.config.ts
+# and @vitejs/plugin-react share one type world.
+overrides:
+  vite: ^6.0.0

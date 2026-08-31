@@ -11,13 +11,32 @@ vi.mock("../src/services/ffmpeg.js", async (importOriginal) => {
   return { ...actual, binariesUsable: vi.fn(async () => null) };
 });
 
+// The checker is replaced so a scan can be held in flight for the
+// sync-during-scan test; nothing in this file checks a real path.
+const checkMock = vi.fn();
+vi.mock("../src/services/checker.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/services/checker.js")>();
+  return { ...actual, checkMediaFile: (...args: unknown[]) => checkMock(...args) };
+});
+
 import { migrate, type DB } from "../src/db.js";
+import type { CheckOutcome } from "../src/services/checker.js";
 import { buildApp } from "../src/app.js";
 
 let db: DB;
 let app: FastifyInstance;
 let dir: string;
 let fileId: number;
+
+// Route tests never check a real path: stand in for the checker with the one
+// behavior the non-scan tests rely on - a vanished file reports missing.
+function defaultCheck(path: string): Promise<CheckOutcome> {
+  return Promise.resolve(
+    fs.existsSync(path)
+      ? { status: "healthy", detail: null, probe: null }
+      : { status: "missing", detail: "no such file", probe: null }
+  );
+}
 
 beforeAll(async () => {
   db = new DatabaseSync(":memory:");
@@ -37,6 +56,7 @@ beforeAll(async () => {
       .run(mediaPath).lastInsertRowid
   );
   app = await buildApp(db);
+  checkMock.mockImplementation(defaultCheck);
 });
 
 afterAll(async () => {
@@ -227,6 +247,41 @@ describe("null-path rows (monitored, no file at the *arr)", () => {
       expect(re.json()).toMatchObject({ id, status: "missing" });
     } finally {
       db.prepare("DELETE FROM media_files WHERE id = ?").run(id);
+    }
+  });
+});
+
+describe("sync during scan", () => {
+  it("rejects a sync with 409 while a scan is running", async () => {
+    // Hold the scan in flight until the test cancels it.
+    checkMock.mockImplementation(
+      (_path: string, ctx: { signal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          ctx.signal?.addEventListener("abort", () => reject(new Error("scan cancelled")), { once: true });
+        })
+    );
+    try {
+      const started = await app.inject({ method: "POST", url: "/api/scan", payload: { scope: "all" } });
+      expect(started.statusCode).toBe(200);
+      let active = false;
+      for (let i = 0; i < 100 && !active; i++) {
+        await new Promise((r2) => setTimeout(r2, 20));
+        const cur = await app.inject({ method: "GET", url: "/api/scan/current" });
+        active = cur.json().active === true;
+      }
+      expect(active).toBe(true);
+
+      const sync = await app.inject({ method: "POST", url: "/api/sync", payload: {} });
+      expect(sync.statusCode).toBe(409);
+      expect(sync.json()).toMatchObject({ error: "A scan is running - wait for it to finish or cancel it" });
+
+      const cancel = await app.inject({ method: "POST", url: "/api/scan/cancel", payload: {} });
+      expect(cancel.statusCode).toBe(200);
+    } finally {
+      // Never leak a running scan or the blocked checker into the other describes.
+      await app.inject({ method: "POST", url: "/api/scan/cancel", payload: {} });
+      await new Promise((r2) => setTimeout(r2, 50));
+      checkMock.mockImplementation(defaultCheck);
     }
   });
 });

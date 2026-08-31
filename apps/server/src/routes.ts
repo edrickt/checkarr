@@ -238,6 +238,9 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
 
   // ---- sync ----
   app.post("/api/sync", async (req) => {
+    // Same gate as purge: a sync mid-scan can relink or clear rows the
+    // scanner is mid-flight on, so scans and syncs never overlap.
+    if (scans.isActive()) throw new ApiError(409, "A scan is running - wait for it to finish or cancel it");
     const b = (req.body ?? {}) as { sourceId?: unknown };
     let sources: SourceRow[];
     if (b.sourceId !== undefined) {

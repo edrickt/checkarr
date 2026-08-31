@@ -94,13 +94,13 @@ CHECKARR_WEB_DIST, LOG_LEVEL.
     PUT    /api/sources/:id               update source
     DELETE /api/sources/:id               delete source and its files
     POST   /api/sources/:id/test          verify URL + key (GET /api/v3/system/status)
-    POST   /api/sync                      pull libraries from all enabled sources (or { sourceId })
+    POST   /api/sync                      pull libraries from all enabled sources (or { sourceId }); 409 while a scan runs
     POST   /api/scan                      { scope: unchecked|corrupt|suspect|missing|unreachable|purged|all, sourceId? }
     POST   /api/purge                     { status: corrupt|suspect|all, sourceId? } delete files at the *arr source(s) + search replacements; deleted files move to the purged status
     POST   /api/files/:id/purge           delete one file at its *arr source + search replacement
     POST   /api/scan/cancel               stop the running scan
     GET    /api/scan/current              progress of the active/last run
-    GET    /api/files?status=&sourceId=&q=&page=    library listing
+    GET    /api/files?status=&sourceId=&q=&page=&pageSize=&sort=title|status|size|checked&dir=asc|desc    library listing
     GET    /api/files/:id                 full detail incl. ffmpeg findings
     POST   /api/files/:id/recheck         re-run the quick check on one file
     GET    /api/files/:id/stream          Range-aware streaming for the browser player

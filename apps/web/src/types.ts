@@ -1,7 +1,11 @@
 export type FileStatus =
   "unchecked" | "healthy" | "suspect" | "corrupt" | "missing" | "unreachable" | "purged";
 
-export type ScanScope = "unchecked" | "corrupt" | "suspect" | "missing" | "unreachable" | "purged" | "all";
+/** Scan scopes mirror the statuses; there is no healthy scan (use "all"). */
+export type ScanScope = Exclude<FileStatus, "healthy"> | "all";
+
+/** Statuses Delete & re-search can target; "all" demands confirm: true. */
+export type PurgeStatus = "corrupt" | "suspect" | "unreachable" | "all";
 
 export interface MediaFile {
   id: number;

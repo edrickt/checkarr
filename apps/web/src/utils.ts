@@ -25,3 +25,17 @@ export function formatWhen(iso: string | null): string {
   if (!iso) return "never";
   return new Date(iso).toLocaleString();
 }
+
+/** Relative time for tooltips-free display ("2h ago"); pair with formatWhen for the exact stamp. */
+export function formatRelative(iso: string | null): string {
+  if (!iso) return "never";
+  const sec = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
+  if (sec < 60) return "just now";
+  const min = Math.round(sec / 60);
+  if (min < 60) return min + "m ago";
+  const hours = Math.round(min / 60);
+  if (hours < 24) return hours + "h ago";
+  const days = Math.round(hours / 24);
+  if (days < 60) return days + "d ago";
+  return Math.round(days / 30) + "mo ago";
+}

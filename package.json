@@ -21,7 +21,7 @@
     "test:coverage": "pnpm -F @checkarr/server test:coverage",
     "start": "node scripts/start.mjs",
     "stop": "node scripts/stop.mjs",
-    "test": "pnpm -F @checkarr/server test",
+    "test": "pnpm -r test",
     "gen:samples": "node scripts/dev/gen-sample-media.mjs",
     "stub:arr": "node scripts/dev/stub-arr.mjs"
   },

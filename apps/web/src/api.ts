@@ -3,6 +3,7 @@ import type {
   FileQuery,
   FileStatus,
   PurgeResponse,
+  PurgeStatus,
   ScanRun,
   ScanScope,
   Settings,
@@ -57,7 +58,7 @@ export const api = {
   testSource: (id: number) => send<TestResult>("POST", "/api/sources/" + id + "/test"),
   sync: (sourceId?: number) =>
     send<SyncResponse>("POST", "/api/sync", sourceId !== undefined ? { sourceId } : {}),
-  purge: (status: "corrupt" | "suspect" | "all", sourceId?: number, confirm?: boolean) => {
+  purge: (status: PurgeStatus, sourceId?: number, confirm?: boolean) => {
     const body: Record<string, unknown> = { status };
     if (sourceId !== undefined) body.sourceId = sourceId;
     if (confirm) body.confirm = true;
