@@ -32,10 +32,18 @@ const alive = (pid) => {
 };
 
 // PIDs get reused: make sure the process is actually Checkarr before
-// killing it. Returns "" on Windows (no cheap equivalent) or on error.
+// killing it. Returns "" when the command line cannot be determined.
 function commandOf(pid) {
-  if (isWin) return "checkarr";
   try {
+    if (isWin) {
+      // wmic is gone on current Windows; ask CIM for the command line.
+      return execSync(
+        "powershell -NoProfile -Command \"(Get-CimInstance Win32_Process -Filter 'ProcessId=" +
+          pid +
+          "').CommandLine\"",
+        { encoding: "utf8", windowsHide: true }
+      ).trim();
+    }
     return execSync("ps -p " + pid + " -o command=", { encoding: "utf8" }).trim();
   } catch {
     return "";
@@ -52,7 +60,13 @@ async function killPrevious() {
   const pid = readPid();
   if (pid && alive(pid)) {
     if (!looksLikeCheckarr(pid)) {
-      console.log("pid " + pid + " is not checkarr (" + commandOf(pid).slice(0, 80) + ") - refusing to kill it; delete data/checkarr.pid if it is stale");
+      console.log(
+        "pid " +
+          pid +
+          " is not checkarr (" +
+          commandOf(pid).slice(0, 80) +
+          ") - refusing to kill it; delete data/checkarr.pid if it is stale"
+      );
     } else {
       console.log("stopping previous instance (pid " + pid + ")");
       try {
@@ -89,7 +103,10 @@ function pidsOnPort() {
     // LISTEN only: without this, established client sockets (your browser!)
     // match and get SIGKILLed by a restart.
     const out = execSync("lsof -ti tcp:" + port + " -sTCP:LISTEN 2>/dev/null || true", { encoding: "utf8" });
-    return out.split("\n").map(Number).filter((n) => Number.isInteger(n) && n > 0);
+    return out
+      .split("\n")
+      .map(Number)
+      .filter((n) => Number.isInteger(n) && n > 0);
   } catch {
     return [];
   }
@@ -100,7 +117,15 @@ async function killPortStrays() {
   if (pids.length === 0) return;
   for (const pid of pids) {
     if (!looksLikeCheckarr(pid)) {
-      console.log("port " + port + " is held by pid " + pid + " (" + commandOf(pid).slice(0, 80) + ") - not checkarr, leaving it alone");
+      console.log(
+        "port " +
+          port +
+          " is held by pid " +
+          pid +
+          " (" +
+          commandOf(pid).slice(0, 80) +
+          ") - not checkarr, leaving it alone"
+      );
       continue;
     }
     console.log("killing stale checkarr on port " + port + " (pid " + pid + ")");

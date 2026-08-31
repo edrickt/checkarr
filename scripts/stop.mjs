@@ -31,8 +31,16 @@ const pid = (() => {
   }
 })();
 function commandOf(p) {
-  if (isWin) return "checkarr";
   try {
+    if (isWin) {
+      // wmic is gone on current Windows; ask CIM for the command line.
+      return execSync(
+        "powershell -NoProfile -Command \"(Get-CimInstance Win32_Process -Filter 'ProcessId=" +
+          p +
+          "').CommandLine\"",
+        { encoding: "utf8", windowsHide: true }
+      ).trim();
+    }
     return execSync("ps -p " + p + " -o command=", { encoding: "utf8" }).trim();
   } catch {
     return "";
@@ -78,13 +86,24 @@ try {
   } else {
     // LISTEN only: established client sockets must not be killed.
     const out = execSync("lsof -ti tcp:" + port + " -sTCP:LISTEN 2>/dev/null || true", { encoding: "utf8" });
-    pids = out.split("\n").map(Number).filter((n) => Number.isInteger(n) && n > 0);
+    pids = out
+      .split("\n")
+      .map(Number)
+      .filter((n) => Number.isInteger(n) && n > 0);
   }
   const ours = pids.filter((p) => {
     const cmd = commandOf(p);
     if (cmd === "") return true;
     if (!/checkarr|apps[\\/]server/.test(cmd)) {
-      console.log("port " + port + " is held by pid " + p + " (" + cmd.slice(0, 80) + ") - not checkarr, leaving it alone");
+      console.log(
+        "port " +
+          port +
+          " is held by pid " +
+          p +
+          " (" +
+          cmd.slice(0, 80) +
+          ") - not checkarr, leaving it alone"
+      );
       return false;
     }
     return true;
