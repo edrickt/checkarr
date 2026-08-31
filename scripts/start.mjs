@@ -31,20 +31,41 @@ const alive = (pid) => {
   }
 };
 
+// PIDs get reused: make sure the process is actually Checkarr before
+// killing it. Returns "" on Windows (no cheap equivalent) or on error.
+function commandOf(pid) {
+  if (isWin) return "checkarr";
+  try {
+    return execSync("ps -p " + pid + " -o command=", { encoding: "utf8" }).trim();
+  } catch {
+    return "";
+  }
+}
+
+function looksLikeCheckarr(pid) {
+  const cmd = commandOf(pid);
+  if (cmd === "") return true; // cannot tell - keep old behavior
+  return /checkarr|apps[\\/]server/.test(cmd);
+}
+
 async function killPrevious() {
   const pid = readPid();
   if (pid && alive(pid)) {
-    console.log("stopping previous instance (pid " + pid + ")");
-    try {
-      process.kill(pid, "SIGTERM");
-    } catch {}
-    const t0 = Date.now();
-    while (alive(pid) && Date.now() - t0 < 10_000) await sleep(200);
-    if (alive(pid)) {
-      console.log("still alive, sending SIGKILL");
+    if (!looksLikeCheckarr(pid)) {
+      console.log("pid " + pid + " is not checkarr (" + commandOf(pid).slice(0, 80) + ") - refusing to kill it; delete data/checkarr.pid if it is stale");
+    } else {
+      console.log("stopping previous instance (pid " + pid + ")");
       try {
-        process.kill(pid, "SIGKILL");
+        process.kill(pid, "SIGTERM");
       } catch {}
+      const t0 = Date.now();
+      while (alive(pid) && Date.now() - t0 < 10_000) await sleep(200);
+      if (alive(pid)) {
+        console.log("still alive, sending SIGKILL");
+        try {
+          process.kill(pid, "SIGKILL");
+        } catch {}
+      }
     }
   }
   try {
@@ -65,7 +86,9 @@ function pidsOnPort() {
       }
       return [...pids];
     }
-    const out = execSync("lsof -ti tcp:" + port + " 2>/dev/null || true", { encoding: "utf8" });
+    // LISTEN only: without this, established client sockets (your browser!)
+    // match and get SIGKILLed by a restart.
+    const out = execSync("lsof -ti tcp:" + port + " -sTCP:LISTEN 2>/dev/null || true", { encoding: "utf8" });
     return out.split("\n").map(Number).filter((n) => Number.isInteger(n) && n > 0);
   } catch {
     return [];
@@ -75,17 +98,23 @@ function pidsOnPort() {
 async function killPortStrays() {
   const pids = pidsOnPort();
   if (pids.length === 0) return;
-  console.log("killing process(es) on port " + port + ": " + pids.join(" "));
   for (const pid of pids) {
+    if (!looksLikeCheckarr(pid)) {
+      console.log("port " + port + " is held by pid " + pid + " (" + commandOf(pid).slice(0, 80) + ") - not checkarr, leaving it alone");
+      continue;
+    }
+    console.log("killing stale checkarr on port " + port + " (pid " + pid + ")");
     try {
       process.kill(pid, "SIGKILL");
     } catch {}
   }
   await sleep(1000);
   for (const pid of pidsOnPort()) {
-    try {
-      process.kill(pid, "SIGKILL");
-    } catch {}
+    if (looksLikeCheckarr(pid)) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {}
+    }
   }
 }
 

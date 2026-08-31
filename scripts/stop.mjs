@@ -30,20 +30,34 @@ const pid = (() => {
     return null;
   }
 })();
-if (pid && alive(pid)) {
-  console.log("stopping pid " + pid);
+function commandOf(p) {
+  if (isWin) return "checkarr";
   try {
-    process.kill(pid, "SIGTERM");
-  } catch {}
-  const t0 = Date.now();
-  while (alive(pid) && Date.now() - t0 < 10_000) await sleep(200);
-  if (alive(pid)) {
-    console.log("still alive, sending SIGKILL");
-    try {
-      process.kill(pid, "SIGKILL");
-    } catch {}
+    return execSync("ps -p " + p + " -o command=", { encoding: "utf8" }).trim();
+  } catch {
+    return "";
   }
-  stopped = 1;
+}
+
+if (pid && alive(pid)) {
+  const cmd = commandOf(pid);
+  if (cmd !== "" && !/checkarr|apps[\\/]server/.test(cmd)) {
+    console.log("pid " + pid + " is not checkarr (" + cmd.slice(0, 80) + ") - refusing to kill it");
+  } else {
+    console.log("stopping pid " + pid);
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {}
+    const t0 = Date.now();
+    while (alive(pid) && Date.now() - t0 < 10_000) await sleep(200);
+    if (alive(pid)) {
+      console.log("still alive, sending SIGKILL");
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {}
+    }
+    stopped = 1;
+  }
 } else if (pid) {
   console.log("stale pid file (pid " + pid + " not running)");
 }
@@ -62,12 +76,22 @@ try {
       }
     }
   } else {
-    const out = execSync("lsof -ti tcp:" + port + " 2>/dev/null || true", { encoding: "utf8" });
+    // LISTEN only: established client sockets must not be killed.
+    const out = execSync("lsof -ti tcp:" + port + " -sTCP:LISTEN 2>/dev/null || true", { encoding: "utf8" });
     pids = out.split("\n").map(Number).filter((n) => Number.isInteger(n) && n > 0);
   }
-  if (pids.length > 0) {
-    console.log("killing process(es) on port " + port + ": " + pids.join(" "));
-    for (const p of pids) {
+  const ours = pids.filter((p) => {
+    const cmd = commandOf(p);
+    if (cmd === "") return true;
+    if (!/checkarr|apps[\\/]server/.test(cmd)) {
+      console.log("port " + port + " is held by pid " + p + " (" + cmd.slice(0, 80) + ") - not checkarr, leaving it alone");
+      return false;
+    }
+    return true;
+  });
+  if (ours.length > 0) {
+    console.log("killing process(es) on port " + port + ": " + ours.join(" "));
+    for (const p of ours) {
       try {
         process.kill(p, "SIGKILL");
       } catch {}
