@@ -40,6 +40,7 @@ export class ScanManager {
   private db: DB;
   private running = false;
   private cancelled = false;
+  private failed = false;
   private activeRunId: number | null = null;
   private cancelController: AbortController | null = null;
 
@@ -69,8 +70,26 @@ export class ScanManager {
   }
 
   async start(scope: "unchecked" | "all", sourceId?: number): Promise<number> {
+    // Claim synchronously, before any await: binariesUsable below spawns two
+    // processes (~hundreds of ms), and two overlapping requests would both
+    // pass an async gate and launch two full scans (reproduced in audit).
     if (this.running) throw new ApiError(409, "A scan is already running");
+    this.running = true;
     this.cancelled = false;
+    this.failed = false;
+    try {
+      return await this.begin(scope, sourceId);
+    } catch (err) {
+      this.running = false;
+      this.activeRunId = null;
+      this.cancelController = null;
+      this.cancelled = false;
+      this.failed = false;
+      throw err;
+    }
+  }
+
+  private async begin(scope: "unchecked" | "all", sourceId?: number): Promise<number> {
     const settings = getSettings(this.db);
     const binaries = resolveBinaries(settings);
     const problem = await binariesUsable(binaries);
@@ -103,7 +122,6 @@ export class ScanManager {
       .prepare("INSERT INTO scan_items (run_id, media_file_id) SELECT ?, id FROM media_files" + where + " ORDER BY id")
       .run(runId, ...params);
 
-    this.running = true;
     this.activeRunId = runId;
     this.cancelController = new AbortController();
     void this.drive(runId, binaries, settings.pathMappings, settings.concurrency);
@@ -113,6 +131,9 @@ export class ScanManager {
   /** Marks the run cancelled immediately: currentRun() reports "cancelling"
    *  right away and in-flight ffmpeg/ffprobe processes are killed. */
   cancel(): void {
+    // Only meaningful while a run is active: cancelling an idle manager must
+    // not override the settled state of the previous run in currentRun().
+    if (!this.running) return;
     this.cancelled = true;
     this.cancelController?.abort();
   }
@@ -136,45 +157,73 @@ export class ScanManager {
     } catch (err) {
       console.error("scan run " + runId + " crashed:" + NL + String((err as Error)?.stack ?? err));
     } finally {
-      const state = this.cancelled ? "cancelled" : "done";
+      const state = this.failed || this.cancelled ? "cancelled" : "done";
       this.db.prepare("UPDATE scan_runs SET state = ?, finished_at = ? WHERE id = ?").run(state, new Date().toISOString(), runId);
       this.cancelController = null;
       this.running = false;
-      // The run is settled: drop the flag so currentRun() reports the final
-      // DB state ("cancelled") instead of an endless in-memory "cancelling".
+      // The run is settled: drop the flags so currentRun() reports the final
+      // DB state instead of an endless in-memory "cancelling".
       this.cancelled = false;
+      this.failed = false;
     }
   }
 
   private async worker(runId: number, ctx: CheckContext): Promise<void> {
     for (;;) {
-      if (this.cancelled) return;
+      if (this.cancelled || this.failed) return;
       const item = this.claim(runId);
       if (!item) return;
-      const file = this.db.prepare("SELECT id, path FROM media_files WHERE id = ?").get(item.media_file_id) as
-        | { id: number; path: string }
-        | undefined;
-      if (!file) {
-        this.db.prepare("UPDATE scan_items SET state = 'skipped' WHERE id = ?").run(item.id);
-        continue;
-      }
-      let outcome: CheckOutcome;
       try {
-        outcome = await checkMediaFile(file.path, ctx);
-      } catch (err) {
-        if (this.cancelled) {
-          // Cancelled mid-file: the in-flight check was killed on purpose, so
-          // leave the item pending instead of persisting a bogus verdict.
+        const file = this.db.prepare("SELECT id, path FROM media_files WHERE id = ?").get(item.media_file_id) as
+          | { id: number; path: string }
+          | undefined;
+        if (!file) {
+          this.db.prepare("UPDATE scan_items SET state = 'skipped' WHERE id = ?").run(item.id);
+          continue;
+        }
+        let outcome: CheckOutcome;
+        try {
+          outcome = await checkMediaFile(file.path, ctx);
+        } catch (err) {
+          if (this.cancelled || this.failed || ctx.signal?.aborted) {
+            // Cancelled or torn down mid-file: the in-flight check was killed
+            // on purpose, so leave the item pending instead of persisting a
+            // bogus verdict.
+            this.db.prepare("UPDATE scan_items SET state = 'pending' WHERE id = ?").run(item.id);
+            return;
+          }
+          outcome = { status: "suspect", detail: "checker error: " + String((err as Error)?.message ?? err), probe: null };
+        }
+        // Close the window between the last in-checker cancellation
+        // checkpoint and the verdict write: an abort landing here must not
+        // persist a verdict computed from killed processes.
+        if (this.cancelled || this.failed || ctx.signal?.aborted) {
           this.db.prepare("UPDATE scan_items SET state = 'pending' WHERE id = ?").run(item.id);
           return;
         }
-        outcome = { status: "suspect", detail: "checker error: " + String((err as Error)?.message ?? err), probe: null };
+        persistOutcome(this.db, file.id, outcome);
+        const done = this.db.prepare("UPDATE scan_items SET state = 'done' WHERE id = ?").run(item.id);
+        if (done.changes > 0) {
+          // The item can cascade away when sync deletes its media_files row
+          // mid-scan; only count progress for work that actually landed.
+          this.db
+            .prepare("UPDATE scan_runs SET done = done + 1, issues = issues + ? WHERE id = ?")
+            .run(outcome.status === "healthy" ? 0 : 1, runId);
+        }
+      } catch (err) {
+        // DB or infrastructure failure: release the item and stop the whole
+        // run - surviving workers exit through the aborted signal instead of
+        // writing into a run that is already finalized.
+        this.failed = true;
+        try {
+          this.db.prepare("UPDATE scan_items SET state = 'pending' WHERE id = ?").run(item.id);
+        } catch { /* the db is the thing that just broke */ }
+        try {
+          this.cancelController?.abort();
+        } catch { /* already torn down */ }
+        console.error("scan worker failed:" + NL + String((err as Error)?.stack ?? err));
+        return;
       }
-      persistOutcome(this.db, file.id, outcome);
-      this.db.prepare("UPDATE scan_items SET state = 'done' WHERE id = ?").run(item.id);
-      this.db
-        .prepare("UPDATE scan_runs SET done = done + 1, issues = issues + ? WHERE id = ?")
-        .run(outcome.status === "healthy" ? 0 : 1, runId);
     }
   }
 

@@ -13,8 +13,6 @@ const SCHEMA: string[] = [
     " path_mappings TEXT NOT NULL DEFAULT '[]'," +
     " updated_at TEXT NOT NULL DEFAULT (datetime('now')))",
   "INSERT OR IGNORE INTO settings (id) VALUES (1)",
-  // installs that never touched the old default of 2 get bumped to 8; deliberate values stay put
-  "UPDATE settings SET concurrency = 8 WHERE id = 1 AND concurrency = 2",
   "CREATE TABLE IF NOT EXISTS sources (" +
     " id INTEGER PRIMARY KEY AUTOINCREMENT," +
     " type TEXT NOT NULL CHECK (type IN ('radarr','sonarr'))," +
@@ -90,6 +88,9 @@ export function openDb(): DB {
   const db = new DatabaseSync(DB_PATH);
   db.exec("PRAGMA journal_mode = WAL;");
   db.exec("PRAGMA foreign_keys = ON;");
+  // A stray sqlite3 CLI / backup job holding a write lock should make us wait,
+  // not crash a worker mid-scan with SQLITE_BUSY.
+  db.exec("PRAGMA busy_timeout = 5000;");
   migrate(db);
   return db;
 }
