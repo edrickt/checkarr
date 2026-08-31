@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
 import { formatWhen } from "../utils";
+import { useCancelScan, useStartScan } from "../useScan";
 
 const CARDS: { status: string; label: string; text: string }[] = [
   { status: "healthy", label: "Healthy", text: "text-emerald-600" },
@@ -14,6 +15,18 @@ const CARDS: { status: string; label: string; text: string }[] = [
 
 const BTN = "border border-neutral-300 bg-white px-3 py-1.5 text-sm text-neutral-700 hover:border-neutral-900 hover:text-neutral-900 disabled:opacity-40";
 const BTN_PRIMARY = "bg-neutral-900 px-3 py-1.5 text-sm text-white hover:bg-neutral-700 disabled:opacity-40";
+
+type StartScan = ReturnType<typeof useStartScan>;
+
+/** Show "Starting..." only on the button that was actually clicked. */
+function scanButtonLabel(
+  m: StartScan,
+  mode: "quick" | "deep",
+  scope: "unchecked" | "all",
+  idle: string
+): string {
+  return m.isPending && m.variables?.mode === mode && m.variables?.scope === scope ? "Starting..." : idle;
+}
 
 export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: string | null) => void }) {
   const queryClient = useQueryClient();
@@ -44,13 +57,11 @@ export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: strin
     onError: (err: Error) => notify("Sync failed: " + err.message)
   });
 
-  const startScan = useMutation({
-    mutationFn: (v: { mode: "quick" | "deep"; scope: "unchecked" | "all" }) => api.startScan(v.mode, v.scope),
-    onSuccess: invalidateAll,
-    onError: (err: Error) => notify("Scan failed to start: " + err.message)
-  });
+  const startScan = useStartScan((err) =>
+    notify(err.message.toLowerCase().includes("cancel") ? "Scan cancelled before it started" : "Scan failed to start: " + err.message)
+  );
 
-  const cancelScan = useMutation({ mutationFn: api.cancelScan, onSuccess: invalidateAll });
+  const cancelScan = useCancelScan();
 
   const purge = useMutation({
     mutationFn: api.purgeCorrupt,
@@ -102,17 +113,17 @@ export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: strin
         </button>
         <button
           onClick={() => startScan.mutate({ mode: "quick", scope: "unchecked" })}
-          disabled={active}
+          disabled={active || startScan.isPending}
           className={BTN_PRIMARY}
         >
-          Quick scan unchecked
+          {scanButtonLabel(startScan, "quick", "unchecked", "Quick scan unchecked")}
         </button>
         <button
           onClick={() => startScan.mutate({ mode: "deep", scope: "unchecked" })}
-          disabled={active}
+          disabled={active || startScan.isPending}
           className={BTN}
         >
-          Deep scan unchecked
+          {scanButtonLabel(startScan, "deep", "unchecked", "Deep scan unchecked")}
         </button>
         <button
           onClick={() => {
@@ -120,10 +131,10 @@ export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: strin
               startScan.mutate({ mode: "quick", scope: "all" });
             }
           }}
-          disabled={active}
+          disabled={active || startScan.isPending}
           className={BTN}
         >
-          Re-scan everything
+          {scanButtonLabel(startScan, "quick", "all", "Re-scan everything")}
         </button>
         {(byStatus.corrupt ?? 0) > 0 && (
           <button
@@ -147,16 +158,17 @@ export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: strin
         {active && (
           <button
             onClick={() => cancelScan.mutate()}
-            className="border border-neutral-300 bg-white px-3 py-1.5 text-sm text-neutral-700 hover:border-red-600 hover:text-red-600"
+            disabled={cancelScan.isPending || run?.state === "cancelling"}
+            className="border border-neutral-300 bg-white px-3 py-1.5 text-sm text-neutral-700 hover:border-red-600 hover:text-red-600 disabled:opacity-40"
           >
-            Cancel scan
+            {cancelScan.isPending || run?.state === "cancelling" ? "Cancelling..." : "Cancel scan"}
           </button>
         )}
       </div>
 
       {message && <div className="border border-neutral-200 px-4 py-3 text-sm text-neutral-600">{message}</div>}
 
-      {run && (
+      {run && run.id > 0 && (
         <div>
           <div className="flex items-baseline justify-between">
             <span className="text-sm font-medium">Scan run #{run.id}</span>

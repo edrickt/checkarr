@@ -115,6 +115,11 @@ export default function SettingsPage() {
     onError: (err: Error) => notify("Sync failed: " + err.message)
   });
 
+  // Which source row is busy, so only that row's buttons react to the click.
+  const testingId = testSource.isPending ? testSource.variables : null;
+  const syncingId = syncSource.isPending ? syncSource.variables : null;
+  const deletingId = deleteSource.isPending ? deleteSource.variables : null;
+
   return (
     <div className="space-y-8">
       {message && <div className="border border-neutral-200 px-4 py-3 text-sm text-neutral-600">{message}</div>}
@@ -140,7 +145,9 @@ export default function SettingsPage() {
                   <input value={editing.baseUrl} onChange={(e) => setEditing({ ...editing, baseUrl: e.target.value })} placeholder="http://localhost:7878" className={INPUT} />
                   <input value={editing.apiKey} onChange={(e) => setEditing({ ...editing, apiKey: e.target.value })} placeholder="API key" className={INPUT} />
                   <div className="flex gap-2">
-                    <button onClick={() => updateSource.mutate(editing)} className={BTN}>Save</button>
+                    <button onClick={() => updateSource.mutate(editing)} disabled={updateSource.isPending} className={BTN}>
+                      {updateSource.isPending ? "Saving..." : "Save"}
+                    </button>
                     <button onClick={() => setEditing(null)} className={BTN}>Cancel</button>
                   </div>
                 </div>
@@ -162,16 +169,21 @@ export default function SettingsPage() {
                     </div>
                   )}
                   <div className="mt-2 flex flex-wrap gap-2">
-                    <button onClick={() => testSource.mutate(s.id)} disabled={testSource.isPending} className={BTN}>Test</button>
-                    <button onClick={() => syncSource.mutate(s.id)} disabled={syncSource.isPending} className={BTN}>Sync</button>
+                    <button onClick={() => testSource.mutate(s.id)} disabled={testingId === s.id} className={BTN}>
+                      {testingId === s.id ? "Testing..." : "Test"}
+                    </button>
+                    <button onClick={() => syncSource.mutate(s.id)} disabled={syncingId === s.id} className={BTN}>
+                      {syncingId === s.id ? "Syncing..." : "Sync"}
+                    </button>
                     <button onClick={() => setEditing(s)} className={BTN}>Edit</button>
                     <button
                       onClick={() => {
                         if (window.confirm("Delete source '" + s.name + "' and its tracked files?")) deleteSource.mutate(s.id);
                       }}
+                      disabled={deletingId === s.id}
                       className={BTN + " hover:border-red-600 hover:text-red-600"}
                     >
-                      Delete
+                      {deletingId === s.id ? "Deleting..." : "Delete"}
                     </button>
                   </div>
                 </>
@@ -195,7 +207,7 @@ export default function SettingsPage() {
             <input value={form.apiKey} onChange={(e) => setForm({ ...form, apiKey: e.target.value })} placeholder="API key (Settings > General in *arr)" className={INPUT} />
           </div>
           <button onClick={() => addSource.mutate()} disabled={addSource.isPending} className={BTN_PRIMARY + " mt-3"}>
-            Add source
+            {addSource.isPending ? "Adding..." : "Add source"}
           </button>
         </div>
       </section>

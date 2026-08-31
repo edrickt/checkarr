@@ -57,6 +57,7 @@ export default function LibraryTable({ initialStatus }: { initialStatus: string 
   });
 
   const items = list.data?.items ?? [];
+  const checkingId = recheck.isPending && typeof recheck.variables === "number" ? recheck.variables : null;
   const total = list.data?.total ?? 0;
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
 
@@ -128,11 +129,11 @@ export default function LibraryTable({ initialStatus }: { initialStatus: string 
                 </button>
                 <button
                   onClick={() => recheck.mutate(f.id)}
-                  disabled={recheck.isPending}
+                  disabled={checkingId === f.id}
                   className="text-xs text-neutral-500 underline-offset-2 hover:text-neutral-900 hover:underline disabled:opacity-40"
                   title="Re-check this file now"
                 >
-                  Re-check
+                  {checkingId === f.id ? "Checking..." : "Re-check"}
                 </button>
               </td>
             </tr>

@@ -45,9 +45,15 @@ export interface RunResult {
 
 const OUTPUT_CAP = 256 * 1024;
 
-/** Run a binary to completion with a hard timeout (SIGTERM, then SIGKILL). */
-export function runBin(bin: string, args: string[], timeoutMs: number): Promise<RunResult> {
+/** Run a binary to completion with a hard timeout (SIGTERM, then SIGKILL).
+ *  An optional abort signal kills the process the same way, so a cancelled
+ *  scan does not keep decoding files in the background. */
+export function runBin(bin: string, args: string[], timeoutMs: number, signal?: AbortSignal): Promise<RunResult> {
   return new Promise((resolve) => {
+    if (signal?.aborted) {
+      resolve({ code: -1, stdout: "", stderr: "", timedOut: false, error: "aborted before start" });
+      return;
+    }
     let stdout = "";
     let stderr = "";
     let settled = false;
@@ -61,17 +67,23 @@ export function runBin(bin: string, args: string[], timeoutMs: number): Promise<
       resolve({ code: -1, stdout: "", stderr: "", timedOut: false, error: String((err as Error)?.message ?? err) });
       return;
     }
+    const killTree = (): void => {
+      try { child.kill("SIGTERM"); } catch { /* already gone */ }
+      setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* already gone */ } }, 2000);
+    };
     child.stdout?.on("data", (d: Buffer) => { if (stdout.length < OUTPUT_CAP) stdout += d.toString("utf8"); });
     child.stderr?.on("data", (d: Buffer) => { if (stderr.length < OUTPUT_CAP) stderr += d.toString("utf8"); });
     const timer = setTimeout(() => {
       timedOut = true;
-      try { child.kill("SIGTERM"); } catch { /* already gone */ }
-      setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* already gone */ } }, 2000);
+      killTree();
     }, timeoutMs);
+    const onAbort = (): void => killTree();
+    signal?.addEventListener("abort", onAbort, { once: true });
     const finish = (code: number, error: string | null): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
       resolve({ code, stdout, stderr, timedOut, error });
     };
     child.on("error", (err: Error) => finish(-1, err.message));
@@ -90,12 +102,13 @@ export type ProbeResult =
   | { ok: true; info: ProbeInfo }
   | { ok: false; stderr: string; error: string | null };
 
-export async function ffprobeFile(bin: string, file: string, timeoutMs: number): Promise<ProbeResult> {
+export async function ffprobeFile(bin: string, file: string, timeoutMs: number, signal?: AbortSignal): Promise<ProbeResult> {
   const r = await runBin(
     bin,
     // note: ffprobe has no -nostdin flag (that is ffmpeg-only)
     ["-hide_banner", "-v", "error", "-print_format", "json", "-show_format", "-show_streams", file],
-    timeoutMs
+    timeoutMs,
+    signal
   );
   if (r.error) return { ok: false, stderr: r.stderr, error: r.error };
   if (r.timedOut) return { ok: false, stderr: r.stderr + String.fromCharCode(10) + "[checkarr] ffprobe timed out", error: null };

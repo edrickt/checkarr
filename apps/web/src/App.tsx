@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
+import { useCancelScan } from "./useScan";
 import Dashboard from "./components/Dashboard";
 import LibraryTable from "./components/LibraryTable";
 import SettingsPage from "./components/SettingsPage";
@@ -29,13 +30,7 @@ export default function App() {
     refetchInterval: (q) => (q.state.data?.activeScan ? 1500 : 5000)
   });
 
-  const cancelScan = useMutation({
-    mutationFn: api.cancelScan,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["scan"] });
-      queryClient.invalidateQueries({ queryKey: ["stats"] });
-    }
-  });
+  const cancelScan = useCancelScan();
 
   const goLibrary = (status: string | null) => {
     setLibraryStatus(status);
@@ -75,19 +70,28 @@ export default function App() {
         {active && run && (
           <div className="border-t border-neutral-200">
             <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-2 text-xs text-neutral-500">
-              <span className="font-medium text-neutral-900">{run.mode} scan running</span>
-              <span>
-                {run.done} / {run.total} checked - {run.issues} with issues
+              <span className="font-medium text-neutral-900">
+                {run.state === "cancelling"
+                  ? "Cancelling " + run.mode + " scan..."
+                  : run.state === "starting"
+                    ? "Starting " + run.mode + " scan..."
+                    : run.mode + " scan running"}
               </span>
+              {run.state !== "starting" && (
+                <span>
+                  {run.done} / {run.total} checked - {run.issues} with issues
+                </span>
+              )}
               <div className="h-1 flex-1 bg-neutral-200">
                 <div className="h-full bg-neutral-900" style={{ width: pct + "%" }} />
               </div>
               <span className="tabular-nums">{pct}%</span>
               <button
                 onClick={() => cancelScan.mutate()}
-                className="border border-neutral-300 px-2 py-0.5 text-neutral-600 hover:border-red-600 hover:text-red-600"
+                disabled={cancelScan.isPending || run.state === "cancelling"}
+                className="border border-neutral-300 bg-white px-2 py-0.5 text-neutral-600 hover:border-red-600 hover:text-red-600 disabled:opacity-40"
               >
-                Cancel
+                {cancelScan.isPending || run.state === "cancelling" ? "Cancelling..." : "Cancel"}
               </button>
             </div>
           </div>

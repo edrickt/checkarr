@@ -41,6 +41,7 @@ export class ScanManager {
   private running = false;
   private cancelled = false;
   private activeRunId: number | null = null;
+  private cancelController: AbortController | null = null;
 
   constructor(db: DB) {
     this.db = db;
@@ -57,38 +58,53 @@ export class ScanManager {
         "SELECT id, mode, scope, state, total, done, issues, started_at AS startedAt, finished_at AS finishedAt" +
           " FROM scan_runs WHERE id = ?"
       )
-      .get(this.activeRunId);
-    return (row as Record<string, unknown>) ?? null;
+      .get(this.activeRunId) as Record<string, unknown> | undefined;
+    if (!row) return null;
+    // Cancel feedback must be instant: surface "cancelling" from memory the
+    // moment cancel() lands instead of waiting for workers to drain. The DB
+    // row stays 'running' (CHECK constraint) until drive() writes the verdict.
+    if (this.cancelled) row.state = "cancelling";
+    return row;
   }
 
   async start(mode: ScanMode, scope: "unchecked" | "all"): Promise<number> {
     if (this.running) throw new ApiError(409, "A scan is already running");
+    this.cancelled = false;
     const settings = getSettings(this.db);
     const binaries = resolveBinaries(settings);
     const problem = await binariesUsable(binaries);
     if (problem) throw new ApiError(400, problem);
+    // A cancel that lands while validating takes effect before anything starts.
+    if (this.cancelled) throw new ApiError(409, "Scan cancelled before it started");
 
-    const rows = (scope === "all"
-      ? this.db.prepare("SELECT id FROM media_files ORDER BY id").all()
-      : this.db.prepare("SELECT id FROM media_files WHERE status = 'unchecked' ORDER BY id").all()) as { id: number }[];
-    if (rows.length === 0) throw new ApiError(400, "No files match the scan scope");
+    // Set-based item creation: one COUNT plus one INSERT..SELECT. The old
+    // per-row INSERT loop held the event loop for seconds on large libraries,
+    // which is exactly why pressing "scan" felt unresponsive.
+    const where = scope === "all" ? "" : " WHERE status = 'unchecked'";
+    const countRow = this.db.prepare("SELECT COUNT(*) AS n FROM media_files" + where).get() as { n: number };
+    const total = Number(countRow.n);
+    if (total === 0) throw new ApiError(400, "No files match the scan scope");
 
     const runRes = this.db
       .prepare("INSERT INTO scan_runs (mode, scope, state, total, started_at) VALUES (?, ?, 'running', ?, ?)")
-      .run(mode, scope, rows.length, new Date().toISOString());
+      .run(mode, scope, total, new Date().toISOString());
     const runId = Number(runRes.lastInsertRowid);
-    const insItem = this.db.prepare("INSERT OR IGNORE INTO scan_items (run_id, media_file_id) VALUES (?, ?)");
-    for (const r of rows) insItem.run(runId, r.id);
+    this.db
+      .prepare("INSERT INTO scan_items (run_id, media_file_id) SELECT ?, id FROM media_files" + where + " ORDER BY id")
+      .run(runId);
 
     this.running = true;
-    this.cancelled = false;
     this.activeRunId = runId;
+    this.cancelController = new AbortController();
     void this.drive(runId, mode, binaries, settings.pathMappings, settings.concurrency);
     return runId;
   }
 
+  /** Marks the run cancelled immediately: currentRun() reports "cancelling"
+   *  right away and in-flight ffmpeg/ffprobe processes are killed. */
   cancel(): void {
-    if (this.running) this.cancelled = true;
+    this.cancelled = true;
+    this.cancelController?.abort();
   }
 
   private async drive(
@@ -104,7 +120,7 @@ export class ScanManager {
       // equal the worker count no matter the hardware. The machine keeps its
       // headroom; raise concurrency if you want more decode throughput.
       const threads = 1;
-      const ctx: CheckContext = { binaries, mappings, mode, threads };
+      const ctx: CheckContext = { binaries, mappings, mode, threads, signal: this.cancelController?.signal };
       const workers: Promise<void>[] = [];
       for (let i = 0; i < n; i++) workers.push(this.worker(runId, ctx));
       await Promise.all(workers);
@@ -113,7 +129,11 @@ export class ScanManager {
     } finally {
       const state = this.cancelled ? "cancelled" : "done";
       this.db.prepare("UPDATE scan_runs SET state = ?, finished_at = ? WHERE id = ?").run(state, new Date().toISOString(), runId);
+      this.cancelController = null;
       this.running = false;
+      // The run is settled: drop the flag so currentRun() reports the final
+      // DB state ("cancelled") instead of an endless in-memory "cancelling".
+      this.cancelled = false;
     }
   }
 
@@ -133,6 +153,12 @@ export class ScanManager {
       try {
         outcome = await checkMediaFile(file.path, ctx);
       } catch (err) {
+        if (this.cancelled) {
+          // Cancelled mid-file: the in-flight check was killed on purpose, so
+          // leave the item pending instead of persisting a bogus verdict.
+          this.db.prepare("UPDATE scan_items SET state = 'pending' WHERE id = ?").run(item.id);
+          return;
+        }
         outcome = { status: "suspect", detail: "checker error: " + String((err as Error)?.message ?? err), probe: null };
       }
       persistOutcome(this.db, file.id, outcome);
