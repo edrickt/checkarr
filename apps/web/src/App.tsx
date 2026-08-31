@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
-import { useCancelScan } from "./useScan";
+import { useCancelScan, useScanPollingGate } from "./useScan";
 import Dashboard from "./components/Dashboard";
 import LibraryTable from "./components/LibraryTable";
 import SettingsPage from "./components/SettingsPage";
@@ -20,10 +20,11 @@ export default function App() {
   const [librarySource, setLibrarySource] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
+  const scanPollPaused = useScanPollingGate();
   const scan = useQuery({
     queryKey: ["scan"],
     queryFn: api.currentScan,
-    refetchInterval: (q) => (q.state.data?.active ? 1500 : 5000)
+    refetchInterval: scanPollPaused ? false : (q) => (q.state.data?.active ? 1500 : 5000)
   });
   const stats = useQuery({
     queryKey: ["stats"],

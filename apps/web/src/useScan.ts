@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useMutationState, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
 import type { ScanRun } from "./types";
 
@@ -15,6 +15,7 @@ export interface ScanSnapshot {
 export function useStartScan(onError?: (err: Error) => void) {
   const queryClient = useQueryClient();
   return useMutation({
+    mutationKey: ["startScan"],
     mutationFn: (v: { scope: "unchecked" | "all"; sourceId?: number; sourceName?: string }) =>
       api.startScan(v.scope, v.sourceId),
     onMutate: async (v) => {
@@ -57,6 +58,7 @@ export function useStartScan(onError?: (err: Error) => void) {
 export function useCancelScan() {
   const queryClient = useQueryClient();
   return useMutation({
+    mutationKey: ["cancelScan"],
     mutationFn: api.cancelScan,
     onMutate: async () => {
       await queryClient.cancelQueries({ queryKey: ["scan"] });
@@ -74,4 +76,15 @@ export function useCancelScan() {
       queryClient.invalidateQueries({ queryKey: ["stats"] });
     }
   });
+}
+
+/**
+ * True while a start/cancel mutation is in flight: every observer of the
+ * ["scan"] query must pause polling, or a mid-flight refetch overwrites the
+ * optimistic placeholder and the header bar flickers.
+ */
+export function useScanPollingGate(): boolean {
+  const starting = useMutationState({ filters: { mutationKey: ["startScan"], status: "pending" } });
+  const cancelling = useMutationState({ filters: { mutationKey: ["cancelScan"], status: "pending" } });
+  return starting.length > 0 || cancelling.length > 0;
 }

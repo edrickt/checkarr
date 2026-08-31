@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
 import { formatWhen } from "../utils";
-import { useCancelScan, useStartScan } from "../useScan";
+import { useCancelScan, useScanPollingGate, useStartScan } from "../useScan";
 
 const CARDS: { status: string; label: string; text: string }[] = [
   { status: "healthy", label: "Healthy", text: "text-emerald-600" },
@@ -13,7 +13,8 @@ const CARDS: { status: string; label: string; text: string }[] = [
   { status: "unchecked", label: "Unchecked", text: "text-neutral-400" }
 ];
 
-const BTN = "border border-neutral-300 bg-white px-3 py-1.5 text-sm text-neutral-700 hover:border-neutral-900 hover:text-neutral-900 disabled:opacity-40";
+const BTN =
+  "border border-neutral-300 bg-white px-3 py-1.5 text-sm text-neutral-700 hover:border-neutral-900 hover:text-neutral-900 disabled:opacity-40";
 const BTN_PRIMARY = "bg-neutral-900 px-3 py-1.5 text-sm text-white hover:bg-neutral-700 disabled:opacity-40";
 
 type StartScan = ReturnType<typeof useStartScan>;
@@ -23,12 +24,25 @@ function scanButtonLabel(m: StartScan, scope: "unchecked" | "all", idle: string)
   return m.isPending && m.variables?.scope === scope ? "Starting..." : idle;
 }
 
-export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: string | null, sourceId: string | null) => void }) {
+export default function Dashboard({
+  onGoLibrary
+}: {
+  onGoLibrary: (status: string | null, sourceId: string | null) => void;
+}) {
   const queryClient = useQueryClient();
   const [message, setMessage] = useState<string | null>(null);
 
-  const stats = useQuery({ queryKey: ["stats"], queryFn: api.stats, refetchInterval: (q) => (q.state.data?.activeScan ? 1500 : 5000) });
-  const scan = useQuery({ queryKey: ["scan"], queryFn: api.currentScan, refetchInterval: (q) => (q.state.data?.active ? 1500 : 5000) });
+  const stats = useQuery({
+    queryKey: ["stats"],
+    queryFn: api.stats,
+    refetchInterval: (q) => (q.state.data?.activeScan ? 1500 : 5000)
+  });
+  const scanPollPaused = useScanPollingGate();
+  const scan = useQuery({
+    queryKey: ["scan"],
+    queryFn: api.currentScan,
+    refetchInterval: scanPollPaused ? false : (q) => (q.state.data?.active ? 1500 : 5000)
+  });
   const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
   const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources });
   // Which library the scan buttons target; empty string means every library.
@@ -51,7 +65,18 @@ export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: strin
   const sync = useMutation({
     mutationFn: (sourceId?: number) => api.sync(sourceId),
     onSuccess: (data) => {
-      const parts = data.results.map((r) => (r.ok ? r.name + ": +" + (r.added ?? 0) + " new, " + (r.updated ?? 0) + " updated, -" + (r.removed ?? 0) + " removed" : r.name + ": FAILED - " + r.error));
+      const parts = data.results.map((r) =>
+        r.ok
+          ? r.name +
+            ": +" +
+            (r.added ?? 0) +
+            " new, " +
+            (r.updated ?? 0) +
+            " updated, -" +
+            (r.removed ?? 0) +
+            " removed"
+          : r.name + ": FAILED - " + r.error
+      );
       notify(parts.join(" | ") || "nothing to sync");
       invalidateAll();
     },
@@ -59,7 +84,11 @@ export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: strin
   });
 
   const startScan = useStartScan((err) =>
-    notify(err.message.toLowerCase().includes("cancel") ? "Scan cancelled before it started" : "Scan failed to start: " + err.message)
+    notify(
+      err.message.toLowerCase().includes("cancel")
+        ? "Scan cancelled before it started"
+        : "Scan failed to start: " + err.message
+    )
   );
 
   const cancelScan = useCancelScan();
@@ -68,16 +97,26 @@ export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: strin
     mutationFn: (v: { status: "corrupt" | "suspect" | "all"; sourceId?: number; confirm?: boolean }) =>
       api.purge(v.status, v.sourceId, v.confirm),
     onSuccess: (data, v) => {
-      const parts = data.results.map((r) =>
-        r.name + ": " + r.deleted + " deleted, " + r.searched + " searches queued" +
-        (r.skipped ? ", " + r.skipped + " already gone" : "") +
-        (r.errors.length ? ", " + r.errors.length + " failed" : "")
+      const parts = data.results.map(
+        (r) =>
+          r.name +
+          ": " +
+          r.deleted +
+          " deleted, " +
+          r.searched +
+          " searches queued" +
+          (r.skipped ? ", " + r.skipped + " already gone" : "") +
+          (r.errors.length ? ", " + r.errors.length + " failed" : "")
       );
       const what = v.status === "all" ? "file(s)" : v.status + " file(s)";
       notify(
-        "Deleted " + data.total + " " + what + " and queued searches for replacements. " +
-        (parts.join(" | ") || "nothing to do") +
-        " Re-sync and re-scan later to check the new downloads."
+        "Deleted " +
+          data.total +
+          " " +
+          what +
+          " and queued searches for replacements. " +
+          (parts.join(" | ") || "nothing to do") +
+          " Re-sync and re-scan later to check the new downloads."
       );
       invalidateAll();
     },
@@ -86,12 +125,12 @@ export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: strin
 
   const active = scan.data?.active ?? false;
   const run = scan.data?.run ?? null;
-  const byStatus = stats.data?.byStatus ?? {};
   const lastScan = stats.data?.lastScan ?? null;
   const libraryId = library === "" ? undefined : Number(library);
   const libraryName = sources.data?.sources.find((s) => String(s.id) === library)?.name ?? null;
   // Stats scoped to the picker: everything when "all", else just that server.
-  const scopeStats = libraryId === undefined ? stats.data : stats.data?.bySource.find((s) => s.sourceId === libraryId);
+  const scopeStats =
+    libraryId === undefined ? stats.data : stats.data?.bySource.find((s) => s.sourceId === libraryId);
   const scopeTotal = scopeStats?.total ?? 0;
   const scopeByStatus = scopeStats?.byStatus ?? {};
 
@@ -99,12 +138,14 @@ export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: strin
     <div className="space-y-6">
       {settings.isError && (
         <div className="border border-red-300 px-4 py-3 text-sm text-red-700">
-          Could not load settings: {(settings.error as Error)?.message ?? "unknown error"} - scan buttons may be wrong until it loads.
+          Could not load settings: {(settings.error as Error)?.message ?? "unknown error"} - scan buttons may
+          be wrong until it loads.
         </div>
       )}
       {stats.isError && (
         <div className="border border-red-300 px-4 py-3 text-sm text-red-700">
-          Could not load stats: {(stats.error as Error)?.message ?? "unknown error"} - the cards below are not live.
+          Could not load stats: {(stats.error as Error)?.message ?? "unknown error"} - the cards below are not
+          live.
         </div>
       )}
       {sources.isError && (
@@ -114,7 +155,8 @@ export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: strin
       )}
       {!settings.isLoading && settings.data && !settings.data.ffmpegAvailable && (
         <div className="border border-red-300 px-4 py-3 text-sm text-red-700">
-          ffmpeg is not available: {settings.data.ffmpegError} - scans will not run. Configure a path in Settings.
+          ffmpeg is not available: {settings.data.ffmpegError} - scans will not run. Configure a path in
+          Settings.
         </div>
       )}
 
@@ -140,14 +182,22 @@ export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: strin
         >
           <option value="">All servers</option>
           {(sources.data?.sources ?? []).map((s) => (
-            <option key={s.id} value={String(s.id)}>{s.name}</option>
+            <option key={s.id} value={String(s.id)}>
+              {s.name}
+            </option>
           ))}
         </select>
         <button onClick={() => sync.mutate(libraryId)} disabled={sync.isPending || active} className={BTN}>
           {sync.isPending ? "Syncing..." : "Sync library"}
         </button>
         <button
-          onClick={() => startScan.mutate({ scope: "unchecked", sourceId: libraryId, sourceName: libraryName ?? undefined })}
+          onClick={() =>
+            startScan.mutate({
+              scope: "unchecked",
+              sourceId: libraryId,
+              sourceName: libraryName ?? undefined
+            })
+          }
           disabled={active || startScan.isPending}
           className={BTN_PRIMARY}
         >
@@ -156,7 +206,11 @@ export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: strin
         <button
           onClick={() => {
             const where = libraryName ? " in " + libraryName : "";
-            if (window.confirm("Re-check every file" + where + ", including healthy ones? This takes much longer.")) {
+            if (
+              window.confirm(
+                "Re-check every file" + where + ", including healthy ones? This takes much longer."
+              )
+            ) {
               startScan.mutate({ scope: "all", sourceId: libraryId, sourceName: libraryName ?? undefined });
             }
           }}
@@ -173,7 +227,11 @@ export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: strin
               aria-expanded={purgeOpen}
               disabled={purge.isPending || active}
               className={BTN + " hover:border-red-600 hover:text-red-600"}
-              title={libraryName ? "Delete files at " + libraryName + " and queue searches for replacements" : "Delete files at their *arr source and queue searches for replacements"}
+              title={
+                libraryName
+                  ? "Delete files at " + libraryName + " and queue searches for replacements"
+                  : "Delete files at their *arr source and queue searches for replacements"
+              }
             >
               {purge.isPending ? "Purging..." : "Delete & re-search"}
             </button>
@@ -188,7 +246,11 @@ export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: strin
                         const n = scopeByStatus.corrupt ?? 0;
                         if (
                           window.confirm(
-                            "Delete " + n + " corrupt file(s) from " + (libraryName ?? "Radarr/Sonarr") + " and search for replacements?\n\nThe files are removed from disk. This cannot be undone."
+                            "Delete " +
+                              n +
+                              " corrupt file(s) from " +
+                              (libraryName ?? "Radarr/Sonarr") +
+                              " and search for replacements?\n\nThe files are removed from disk. This cannot be undone."
                           )
                         ) {
                           purge.mutate({ status: "corrupt", sourceId: libraryId });
@@ -206,7 +268,11 @@ export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: strin
                         const n = scopeByStatus.suspect ?? 0;
                         if (
                           window.confirm(
-                            "Delete " + n + " suspect file(s) from " + (libraryName ?? "Radarr/Sonarr") + " and search for replacements?\n\nSuspect files may still play (recoverable errors were reported). The files are removed from disk. This cannot be undone."
+                            "Delete " +
+                              n +
+                              " suspect file(s) from " +
+                              (libraryName ?? "Radarr/Sonarr") +
+                              " and search for replacements?\n\nSuspect files may still play (recoverable errors were reported). The files are removed from disk. This cannot be undone."
                           )
                         ) {
                           purge.mutate({ status: "suspect", sourceId: libraryId });
@@ -223,7 +289,11 @@ export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: strin
                       const n = scopeTotal;
                       if (
                         window.confirm(
-                          "Delete ALL " + n + " tracked file(s)" + (libraryName ? " on " + libraryName : " across all servers") + ", including healthy ones, and search for replacements?\n\nEvery file is removed from disk. This cannot be undone."
+                          "Delete ALL " +
+                            n +
+                            " tracked file(s)" +
+                            (libraryName ? " on " + libraryName : " across all servers") +
+                            ", including healthy ones, and search for replacements?\n\nEvery file is removed from disk. This cannot be undone."
                         )
                       ) {
                         purge.mutate({ status: "all", sourceId: libraryId, confirm: true });
@@ -249,13 +319,24 @@ export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: strin
         )}
       </div>
 
-      {message && <div className="border border-neutral-200 px-4 py-3 text-sm text-neutral-600">{message}</div>}
+      {message && (
+        <div className="border border-neutral-200 px-4 py-3 text-sm text-neutral-600">{message}</div>
+      )}
 
       {run && run.id > 0 && (
         <div>
           <div className="flex items-baseline justify-between">
             <span className="text-sm font-medium">Scan run #{run.id}</span>
-            <span className={"text-xs " + (run.state === "running" ? "text-emerald-600" : run.state === "done" ? "text-neutral-500" : "text-amber-600")}>
+            <span
+              className={
+                "text-xs " +
+                (run.state === "running"
+                  ? "text-emerald-600"
+                  : run.state === "done"
+                    ? "text-neutral-500"
+                    : "text-amber-600")
+              }
+            >
               {run.state}
             </span>
           </div>
@@ -277,15 +358,17 @@ export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: strin
         </div>
       )}
       {!run && lastScan && (
-        <div className="text-xs text-neutral-400">last scan: {formatWhen(lastScan.finishedAt ?? lastScan.startedAt)}</div>
+        <div className="text-xs text-neutral-400">
+          last scan: {formatWhen(lastScan.finishedAt ?? lastScan.startedAt)}
+        </div>
       )}
 
       <div className="border-t border-neutral-200 pt-4 text-sm text-neutral-500">
         <p className="font-medium text-neutral-700">How checks work</p>
         <p className="mt-1">
-          Every file is probed with ffprobe, then decoded with ffmpeg: the first 10 seconds, and 10 seconds from the
-          middle (50% of duration). Files that fail to decode are marked corrupt;
-          files with recoverable errors or no known duration are marked suspect.
+          Every file is probed with ffprobe, then decoded with ffmpeg: the first 10 seconds, and 10 seconds
+          from the middle (50% of duration). Files that fail to decode are marked corrupt; files with
+          recoverable errors or no known duration are marked suspect.
         </p>
       </div>
     </div>
