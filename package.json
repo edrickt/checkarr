@@ -4,12 +4,15 @@
   "private": true,
   "description": "Media integrity checker for Radarr/Sonarr libraries",
   "engines": {
-    "node": ">=23.4"
+    "node": ">=23.4",
+    "pnpm": ">=11"
   },
+  "packageManager": "pnpm@11.7.0",
   "scripts": {
     "dev:server": "pnpm -F @checkarr/server dev",
     "dev:web": "pnpm -F @checkarr/web dev",
     "build": "pnpm -F @checkarr/server build && pnpm -F @checkarr/web build",
+    "typecheck": "pnpm -F @checkarr/server typecheck && pnpm -F @checkarr/web typecheck",
     "start": "node scripts/start.mjs",
     "stop": "node scripts/stop.mjs",
     "test": "pnpm -F @checkarr/server test",
