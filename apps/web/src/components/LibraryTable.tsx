@@ -56,8 +56,17 @@ export default function LibraryTable({ initialStatus }: { initialStatus: string 
     }
   });
 
+  const purgeOne = useMutation({
+    mutationFn: (id: number) => api.purgeFile(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["files"] });
+      queryClient.invalidateQueries({ queryKey: ["stats"] });
+    }
+  });
+
   const items = list.data?.items ?? [];
   const checkingId = recheck.isPending && typeof recheck.variables === "number" ? recheck.variables : null;
+  const purgingId = purgeOne.isPending && typeof purgeOne.variables === "number" ? purgeOne.variables : null;
   const total = list.data?.total ?? 0;
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
 
@@ -135,6 +144,22 @@ export default function LibraryTable({ initialStatus }: { initialStatus: string 
                 >
                   {checkingId === f.id ? "Checking..." : "Re-check"}
                 </button>
+                <button
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        "Delete '" + f.title + "' at " + f.sourceName + " and search for a replacement?\n\nThe file is removed from disk. This cannot be undone."
+                      )
+                    ) {
+                      purgeOne.mutate(f.id);
+                    }
+                  }}
+                  disabled={purgingId === f.id}
+                  className="ml-3 text-xs text-neutral-500 underline-offset-2 hover:text-red-600 hover:underline disabled:opacity-40"
+                  title="Delete this file at the *arr source and queue a search for a replacement"
+                >
+                  {purgingId === f.id ? "Purging..." : "Delete & re-search"}
+                </button>
               </td>
             </tr>
           ))}
@@ -173,6 +198,10 @@ export default function LibraryTable({ initialStatus }: { initialStatus: string 
 
       {recheck.error instanceof Error && (
         <div className="border border-red-300 px-3 py-2 text-xs text-red-700">{recheck.error.message}</div>
+      )}
+
+      {purgeOne.error instanceof Error && (
+        <div className="border border-red-300 px-3 py-2 text-xs text-red-700">{purgeOne.error.message}</div>
       )}
 
       {selected && <DetailModal file={selected} onClose={() => setSelected(null)} />}

@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createServer, type Server } from "node:http";
 import { DatabaseSync } from "node:sqlite";
 import { migrate, type DB } from "../src/db.js";
-import { purgeCorrupt } from "../src/services/purge.js";
+import { purgeCorrupt, purgeFiles } from "../src/services/purge.js";
 
 function makeDb(): DB {
   const db = new DatabaseSync(":memory:");
@@ -131,5 +131,20 @@ describe("purgeCorrupt", () => {
     expect(result.total).toBe(0);
     expect(result.results).toHaveLength(0);
     expect(deletes).toHaveLength(2); // unchanged from the previous test
+  });
+
+  it("purges a single file by id", async () => {
+    const db = makeDb();
+    seed(db);
+    db.prepare("UPDATE sources SET base_url = ? WHERE id = 1").run(radarrUrl);
+    db.prepare("UPDATE sources SET base_url = ? WHERE id = 2").run(sonarrUrl);
+
+    const result = await purgeFiles(db, { fileId: 1 });
+    expect(result.total).toBe(1);
+    expect(result.results).toHaveLength(1);
+    expect(result.results[0]!.type).toBe("radarr");
+    expect(result.results[0]!.deleted).toBe(1);
+    expect(result.results[0]!.searched).toBe(1);
+    expect(deletes).toHaveLength(3); // +1 from this test
   });
 });

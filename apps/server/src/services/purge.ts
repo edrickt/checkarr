@@ -130,20 +130,35 @@ async function purgeSonarr(source: PurgeRow, entries: PurgeRow[]): Promise<Purge
   return result;
 }
 
+export interface PurgeFilter {
+  /** Only touch files with this status; omit, or "all", for every status. */
+  status?: string;
+  /** Restrict to a single media_files row (per-file purge from the library). */
+  fileId?: number;
+}
+
 /**
- * Delete every corrupt file at its *arr source and queue searches for
- * replacements. Only enabled sources are touched; files whose *arr record no
+ * Delete files at their *arr sources and queue searches for replacements,
+ * selected by filter among enabled sources only. Files whose *arr record no
  * longer references a file are counted as skipped. Statuses in Checkarr are
  * left alone - a later sync + scan reflects the new reality.
  */
-export async function purgeCorrupt(db: DB): Promise<PurgeResult> {
-  const rows = db
-    .prepare(
-      "SELECT mf.id, mf.external_id, mf.path, s.id AS source_id, s.type, s.name, s.base_url, s.api_key" +
-        " FROM media_files mf JOIN sources s ON s.id = mf.source_id" +
-        " WHERE mf.status = 'corrupt' AND s.enabled = 1 ORDER BY s.id, mf.id"
-    )
-    .all() as unknown as PurgeRow[];
+export async function purgeFiles(db: DB, filter: PurgeFilter = {}): Promise<PurgeResult> {
+  let sql =
+    "SELECT mf.id, mf.external_id, mf.path, s.id AS source_id, s.type, s.name, s.base_url, s.api_key" +
+    " FROM media_files mf JOIN sources s ON s.id = mf.source_id" +
+    " WHERE s.enabled = 1";
+  const params: string[] = [];
+  if (filter.status !== undefined && filter.status !== "all") {
+    sql += " AND mf.status = ?";
+    params.push(filter.status);
+  }
+  if (filter.fileId !== undefined) {
+    sql += " AND mf.id = ?";
+    params.push(String(filter.fileId));
+  }
+  sql += " ORDER BY s.id, mf.id";
+  const rows = db.prepare(sql).all(...params) as unknown as PurgeRow[];
 
   const bySource = new Map<number, { source: PurgeRow; entries: PurgeRow[] }>();
   for (const r of rows) {
@@ -157,4 +172,9 @@ export async function purgeCorrupt(db: DB): Promise<PurgeResult> {
     results.push(source.type === "sonarr" ? await purgeSonarr(source, entries) : await purgeRadarr(source, entries));
   }
   return { results, total: results.reduce((n, r) => n + r.deleted, 0) };
+}
+
+/** Delete every corrupt file at its *arr source; the dashboard's one-click purge. */
+export async function purgeCorrupt(db: DB): Promise<PurgeResult> {
+  return purgeFiles(db, { status: "corrupt" });
 }

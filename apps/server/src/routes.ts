@@ -5,7 +5,7 @@ import { binariesUsable, resolveBinaries } from "./services/ffmpeg.js";
 import { checkMediaFile, resolveLocalPath } from "./services/checker.js";
 import { persistOutcome, ScanManager } from "./services/scanner.js";
 import { syncSource, testSource, type SourceCore } from "./services/sync.js";
-import { purgeCorrupt } from "./services/purge.js";
+import { purgeFiles } from "./services/purge.js";
 import { ApiError } from "./lib/api-error.js";
 import type { DB } from "./db.js";
 
@@ -222,9 +222,14 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
   });
 
   // ---- purge ----
-  app.post("/api/purge/corrupt", async () => {
+  const PURGE_STATUSES = ["corrupt", "suspect", "missing", "unreachable", "healthy", "unchecked", "all"];
+
+  app.post("/api/purge", async (req) => {
     if (scans.isActive()) throw new ApiError(409, "A scan is running - wait for it to finish or cancel it");
-    return purgeCorrupt(db);
+    const b = (req.body ?? {}) as Record<string, unknown>;
+    const status = typeof b.status === "string" && b.status !== "" ? b.status : "corrupt";
+    if (!PURGE_STATUSES.includes(status)) throw new ApiError(400, "status must be one of: " + PURGE_STATUSES.join(", "));
+    return purgeFiles(db, { status });
   });
 
   // ---- scan ----
@@ -333,6 +338,15 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
     }
     delete row.probeJson;
     return { file: row };
+  });
+
+  app.post("/api/files/:id/purge", async (req) => {
+    if (scans.isActive()) throw new ApiError(409, "A scan is running - wait for it to finish or cancel it");
+    const id = Number((req.params as { id: string }).id);
+    if (!Number.isInteger(id)) throw new ApiError(400, "invalid file id");
+    const exists = db.prepare("SELECT id FROM media_files WHERE id = ?").get(id);
+    if (!exists) throw new ApiError(404, "file not found");
+    return purgeFiles(db, { fileId: id });
   });
 
   app.post("/api/files/:id/recheck", async (req) => {

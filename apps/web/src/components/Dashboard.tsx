@@ -62,15 +62,16 @@ export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: strin
   const cancelScan = useCancelScan();
 
   const purge = useMutation({
-    mutationFn: api.purgeCorrupt,
-    onSuccess: (data) => {
+    mutationFn: (status: "corrupt" | "suspect" | "all") => api.purge(status),
+    onSuccess: (data, status) => {
       const parts = data.results.map((r) =>
         r.name + ": " + r.deleted + " deleted, " + r.searched + " searches queued" +
         (r.skipped ? ", " + r.skipped + " already gone" : "") +
         (r.errors.length ? ", " + r.errors.length + " failed" : "")
       );
+      const what = status === "all" ? "file(s)" : status + " file(s)";
       notify(
-        "Deleted " + data.total + " corrupt file(s) and queued searches for replacements. " +
+        "Deleted " + data.total + " " + what + " and queued searches for replacements. " +
         (parts.join(" | ") || "nothing to do") +
         " Re-sync and re-scan later to check the new downloads."
       );
@@ -150,14 +151,52 @@ export default function Dashboard({ onGoLibrary }: { onGoLibrary: (status: strin
                   "Delete " + n + " corrupt file(s) from Radarr/Sonarr and search for replacements?\n\nThe files are removed from disk. This cannot be undone."
                 )
               ) {
-                purge.mutate();
+                purge.mutate("corrupt");
               }
             }}
             disabled={purge.isPending || active}
             className={BTN + " hover:border-red-600 hover:text-red-600"}
             title="Deletes the corrupt files at the *arr source and queues searches for replacements"
           >
-            {purge.isPending ? "Purging..." : "Delete & re-search corrupt (" + (byStatus.corrupt ?? 0) + ")"}
+            {purge.isPending && purge.variables === "corrupt" ? "Purging..." : "Delete & re-search corrupt (" + (byStatus.corrupt ?? 0) + ")"}
+          </button>
+        )}
+        {(byStatus.suspect ?? 0) > 0 && (
+          <button
+            onClick={() => {
+              const n = byStatus.suspect ?? 0;
+              if (
+                window.confirm(
+                  "Delete " + n + " suspect file(s) from Radarr/Sonarr and search for replacements?\n\nSuspect files may still play (recoverable errors were reported). The files are removed from disk. This cannot be undone."
+                )
+              ) {
+                purge.mutate("suspect");
+              }
+            }}
+            disabled={purge.isPending || active}
+            className={BTN + " hover:border-red-600 hover:text-red-600"}
+            title="Deletes the suspect files at the *arr source and queues searches for replacements"
+          >
+            {purge.isPending && purge.variables === "suspect" ? "Purging..." : "Delete & re-search suspect (" + (byStatus.suspect ?? 0) + ")"}
+          </button>
+        )}
+        {(stats.data?.total ?? 0) > 0 && (
+          <button
+            onClick={() => {
+              const n = stats.data?.total ?? 0;
+              if (
+                window.confirm(
+                  "Delete ALL " + n + " tracked file(s), including healthy ones, from Radarr/Sonarr and search for replacements?\n\nEvery file is removed from disk. This cannot be undone."
+                )
+              ) {
+                purge.mutate("all");
+              }
+            }}
+            disabled={purge.isPending || active}
+            className={BTN + " hover:border-red-600 hover:text-red-600"}
+            title="Deletes every tracked file at its *arr source and queues searches for replacements"
+          >
+            {purge.isPending && purge.variables === "all" ? "Purging..." : "Delete & re-search everything"}
           </button>
         )}
         {active && (
