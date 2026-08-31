@@ -8,6 +8,9 @@ services:
       - "127.0.0.1:5656:5656"
     volumes:
       - checkarr-data:/data
+      # The container runs as the unprivileged "node" user. Upgrading from an
+      # image that ran as root? Migrate the existing volume once:
+      #   docker compose run --rm --user root chown -R node:node /data
       # Mount your media and *arr libraries so files are readable inside the container,
       # then add matching path mappings in Checkarr settings.
       # - /path/to/movies:/data/movies:ro

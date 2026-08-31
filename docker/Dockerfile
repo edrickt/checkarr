@@ -26,6 +26,11 @@ ENV CHECKARR_DATA_DIR=/data
 # unless you consciously want it on the LAN (and set CHECKARR_ALLOWED_HOSTS).
 ENV HOST=0.0.0.0
 COPY --from=build /app ./
+# Run as the unprivileged node user. Fresh data volumes inherit this image's
+# /data ownership. Upgrading from an image that ran as root? Migrate once:
+#   docker compose run --rm --user root chown -R node:node /data
+RUN mkdir -p /data && chown node:node /data
+USER node
 VOLUME /data
 EXPOSE 5656
 CMD ["node", "apps/server/dist/index.js"]
