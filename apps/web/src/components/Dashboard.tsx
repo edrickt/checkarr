@@ -10,6 +10,7 @@ const CARDS: { status: string; label: string; text: string }[] = [
   { status: "suspect", label: "Suspect", text: "text-amber-600" },
   { status: "missing", label: "Missing", text: "text-sky-600" },
   { status: "unreachable", label: "Unreachable", text: "text-violet-600" },
+  { status: "purged", label: "Purged", text: "text-fuchsia-600" },
   { status: "unchecked", label: "Unchecked", text: "text-neutral-400" }
 ];
 
@@ -154,7 +155,7 @@ export default function Dashboard({
         </div>
       )}
 
-      <div className="grid grid-cols-3 border-y border-neutral-200 sm:grid-cols-6">
+      <div className="grid grid-cols-4 border-y border-neutral-200 sm:grid-cols-7">
         {CARDS.map((c) => (
           <button
             key={c.status}
@@ -216,7 +217,8 @@ export default function Dashboard({
                     ["corrupt", "Corrupt", scopeByStatus.corrupt ?? 0],
                     ["suspect", "Suspect", scopeByStatus.suspect ?? 0],
                     ["missing", "Missing", scopeByStatus.missing ?? 0],
-                    ["unreachable", "Unreachable", scopeByStatus.unreachable ?? 0]
+                    ["unreachable", "Unreachable", scopeByStatus.unreachable ?? 0],
+                    ["purged", "Purged", scopeByStatus.purged ?? 0]
                   ] as const
                 )
                   .filter(([, , n]) => n > 0)

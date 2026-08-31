@@ -16,14 +16,15 @@ ffprobe parses the container, then ffmpeg decodes the video and audio streams in
 
 Verdicts:
 
-| Status      | Meaning                                                   |
-| ----------- | --------------------------------------------------------- |
-| healthy     | probe + all decode checks clean                           |
-| corrupt     | container unparseable or a decode check failed            |
-| suspect     | recoverable decode errors, unknown duration, or a timeout |
-| missing     | the *arr library references a file that no longer exists  |
-| unreachable | the file exists but is not readable (permissions)         |
-| unchecked   | synced but not checked yet                                |
+| Status      | Meaning                                                                                                                                                            |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| healthy     | probe + all decode checks clean                                                                                                                                    |
+| corrupt     | container unparseable or a decode check failed                                                                                                                     |
+| suspect     | recoverable decode errors, unknown duration, or a timeout                                                                                                          |
+| missing     | the *arr library references a file that no longer exists                                                                                                           |
+| unreachable | the file exists but is not readable (permissions)                                                                                                                  |
+| purged      | deleted at the *arr via "Delete & re-search" (the batched replacement search may or may not have landed); the next sync drops the row or swaps in the new download |
+| unchecked   | synced but not checked yet                                                                                                                                         |
 
 Checkarr keeps the ffmpeg findings per file, so you can see exactly what the decoder reported.
 
@@ -92,8 +93,8 @@ CHECKARR_WEB_DIST, LOG_LEVEL.
     DELETE /api/sources/:id               delete source and its files
     POST   /api/sources/:id/test          verify URL + key (GET /api/v3/system/status)
     POST   /api/sync                      pull libraries from all enabled sources (or { sourceId })
-    POST   /api/scan                      { scope: unchecked|corrupt|suspect|missing|unreachable|all, sourceId? }
-    POST   /api/purge                     { status: corrupt|suspect|all, sourceId? } delete files at the *arr source(s) + search replacements
+    POST   /api/scan                      { scope: unchecked|corrupt|suspect|missing|unreachable|purged|all, sourceId? }
+    POST   /api/purge                     { status: corrupt|suspect|all, sourceId? } delete files at the *arr source(s) + search replacements; deleted files move to the purged status
     POST   /api/files/:id/purge           delete one file at its *arr source + search replacement
     POST   /api/scan/cancel               stop the running scan
     GET    /api/scan/current              progress of the active/last run

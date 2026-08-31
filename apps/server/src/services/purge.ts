@@ -59,7 +59,11 @@ function sameArrPath(a: string, b: string): boolean {
  * Radarr: resolve the movie's file id, delete the file (which removes it from
  * disk), then batch MoviesSearch so Radarr grabs replacements.
  */
-async function purgeRadarr(source: PurgeRow, entries: PurgeRow[]): Promise<PurgeSourceResult> {
+async function purgeRadarr(
+  source: PurgeRow,
+  entries: PurgeRow[],
+  onDeleted: (rowId: number) => void
+): Promise<PurgeSourceResult> {
   const result: PurgeSourceResult = {
     sourceId: source.source_id,
     name: source.name,
@@ -100,6 +104,7 @@ async function purgeRadarr(source: PurgeRow, entries: PurgeRow[]): Promise<Purge
       await fetchArr(source.base_url, source.api_key, "/api/v3/moviefile/" + fileId, { method: "DELETE" });
       result.deleted++;
       movieIds.push(movieId);
+      onDeleted(e.id);
     } catch (err) {
       result.errors.push(e.path + ": " + String((err as Error)?.message ?? err));
     }
@@ -121,7 +126,11 @@ async function purgeRadarr(source: PurgeRow, entries: PurgeRow[]): Promise<Purge
 /**
  * Sonarr: resolve the episode's file id, delete it, then batch EpisodesSearch.
  */
-async function purgeSonarr(source: PurgeRow, entries: PurgeRow[]): Promise<PurgeSourceResult> {
+async function purgeSonarr(
+  source: PurgeRow,
+  entries: PurgeRow[],
+  onDeleted: (rowId: number) => void
+): Promise<PurgeSourceResult> {
   const result: PurgeSourceResult = {
     sourceId: source.source_id,
     name: source.name,
@@ -162,6 +171,7 @@ async function purgeSonarr(source: PurgeRow, entries: PurgeRow[]): Promise<Purge
       await fetchArr(source.base_url, source.api_key, "/api/v3/episodefile/" + fileId, { method: "DELETE" });
       result.deleted++;
       episodeIds.push(episodeId);
+      onDeleted(e.id);
     } catch (err) {
       result.errors.push(e.path + ": " + String((err as Error)?.message ?? err));
     }
@@ -192,10 +202,15 @@ export interface PurgeFilter {
 /**
  * Delete files at their *arr sources and queue searches for replacements,
  * selected by filter among enabled sources only. Files whose *arr record no
- * longer references a file are counted as skipped. Statuses in Checkarr are
- * left alone - a later sync + scan reflects the new reality.
+ * longer references a file are counted as skipped. Every deleted file moves
+ * to the 'purged' status: it is gone from disk (the replacement search is
+ * batched per source and its failure is reported in the errors), and the
+ * next sync drops the row (or swaps in the new download, which arrives as a
+ * fresh unchecked file at its new path).
  */
 export async function purgeFiles(db: DB, filter: PurgeFilter = {}): Promise<PurgeResult> {
+  const now = new Date().toISOString();
+  const markPurged = db.prepare("UPDATE media_files SET status = 'purged', updated_at = ? WHERE id = ?");
   let sql =
     "SELECT mf.id, mf.external_id, mf.path, s.id AS source_id, s.type, s.name, s.base_url, s.api_key" +
     " FROM media_files mf JOIN sources s ON s.id = mf.source_id" +
@@ -225,11 +240,18 @@ export async function purgeFiles(db: DB, filter: PurgeFilter = {}): Promise<Purg
 
   const results: PurgeSourceResult[] = [];
   for (const { source, entries } of bySource.values()) {
+    const deletedIds: number[] = [];
+    const onDeleted = (rowId: number): void => {
+      deletedIds.push(rowId);
+      markPurged.run(now, rowId);
+    };
     // One failing source must not hide what already happened elsewhere or
     // skip the remaining sources: report the failure and keep going.
     try {
       results.push(
-        source.type === "sonarr" ? await purgeSonarr(source, entries) : await purgeRadarr(source, entries)
+        source.type === "sonarr"
+          ? await purgeSonarr(source, entries, onDeleted)
+          : await purgeRadarr(source, entries, onDeleted)
       );
     } catch (err) {
       results.push({

@@ -179,6 +179,20 @@ describe("purge", () => {
     const sonCmd = commands.find((c) => c.app === "sonarr")!.body as { name: string; episodeIds: number[] };
     expect(sonCmd.name).toBe("EpisodesSearch");
     expect(sonCmd.episodeIds).toEqual([11]);
+
+    // Deleted files moved to the 'purged' category; skipped and
+    // untouched files keep their old verdict.
+    const statuses = db.prepare("SELECT id, status FROM media_files ORDER BY id").all() as {
+      id: number;
+      status: string;
+    }[];
+    expect(statuses).toEqual([
+      { id: 1, status: "purged" },
+      { id: 2, status: "corrupt" },
+      { id: 3, status: "healthy" },
+      { id: 4, status: "purged" },
+      { id: 5, status: "corrupt" }
+    ]);
   });
 
   it("skips files whose *arr path changed since the scan", async () => {
@@ -219,6 +233,10 @@ describe("purge", () => {
     expect(result.results[0]!.searched).toBe(0);
     expect(result.results[0]!.errors[0]).toMatch(/replacement search failed/);
     expect(deletes).toEqual(["radarrFail:600"]);
+    // The file was still deleted: it lands in 'purged' either way.
+    expect(
+      (db.prepare("SELECT status FROM media_files WHERE id = 1").get() as { status: string }).status
+    ).toBe("purged");
   });
 
   it("skips disabled sources entirely", async () => {

@@ -291,7 +291,15 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
   });
 
   // ---- scan ----
-  const SCAN_SCOPES: ScanScope[] = ["unchecked", "corrupt", "suspect", "missing", "unreachable", "all"];
+  const SCAN_SCOPES: ScanScope[] = [
+    "unchecked",
+    "corrupt",
+    "suspect",
+    "missing",
+    "unreachable",
+    "purged",
+    "all"
+  ];
   app.post("/api/scan", async (req) => {
     const b = (req.body ?? {}) as Record<string, unknown>;
     if (b.scope !== undefined && !SCAN_SCOPES.includes(b.scope as ScanScope)) {
@@ -327,7 +335,8 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
       suspect: 0,
       corrupt: 0,
       missing: 0,
-      unreachable: 0
+      unreachable: 0,
+      purged: 0
     };
     let total = 0;
     for (const r of rows) {
@@ -356,7 +365,15 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
       const group = bySourceMap.get(r.sourceId) ?? {
         sourceId: r.sourceId,
         total: 0,
-        byStatus: { unchecked: 0, healthy: 0, suspect: 0, corrupt: 0, missing: 0, unreachable: 0 }
+        byStatus: {
+          unchecked: 0,
+          healthy: 0,
+          suspect: 0,
+          corrupt: 0,
+          missing: 0,
+          unreachable: 0,
+          purged: 0
+        }
       };
       group.byStatus[r.status] = Number(r.n);
       group.total += Number(r.n);

@@ -34,7 +34,7 @@ const SCHEMA: string[] = [
     " size_bytes INTEGER," +
     " quality TEXT," +
     " status TEXT NOT NULL DEFAULT 'unchecked' CHECK (status IN" +
-    " ('unchecked','healthy','suspect','corrupt','missing','unreachable'))," +
+    " ('unchecked','healthy','suspect','corrupt','missing','unreachable','purged'))," +
     " duration_s REAL," +
     " container TEXT," +
     " video_codec TEXT," +
@@ -51,7 +51,7 @@ const SCHEMA: string[] = [
     " id INTEGER PRIMARY KEY AUTOINCREMENT," +
     " mode TEXT NOT NULL CHECK (mode IN ('quick'))," +
     " scope TEXT NOT NULL DEFAULT 'unchecked' CHECK (scope IN" +
-    " ('unchecked','corrupt','suspect','missing','unreachable','all'))," +
+    " ('unchecked','corrupt','suspect','missing','unreachable','purged','all'))," +
     " source_id INTEGER REFERENCES sources(id) ON DELETE SET NULL," +
     " state TEXT NOT NULL DEFAULT 'running' CHECK (state IN ('running','done','cancelled'))," +
     " total INTEGER NOT NULL DEFAULT 0," +
@@ -82,15 +82,16 @@ export function migrate(db: DB): void {
   if (!cols.some((c) => c.name === "source_id")) {
     db.exec("ALTER TABLE scan_runs ADD COLUMN source_id INTEGER REFERENCES sources(id) ON DELETE SET NULL");
   }
-  // Older installs lock scan_runs.scope to ('unchecked','all') with a CHECK
-  // constraint; widen it with the standard table-rebuild recipe (foreign
-  // keys off, copy rows, swap tables). Idempotent: skips once widened.
+  // Older installs lock scan_runs.scope to a CHECK without 'purged' (the
+  // first generation even lacked corrupt..unreachable); widen it with the
+  // standard table-rebuild recipe (foreign keys off, copy rows, swap
+  // tables). Idempotent: skips once widened.
   const scanRunsSql =
     (
       db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'scan_runs'").get() as
         { sql: string } | undefined
     )?.sql ?? "";
-  if (scanRunsSql.length > 0 && !scanRunsSql.includes("'corrupt'")) {
+  if (scanRunsSql.length > 0 && !scanRunsSql.includes("'purged'")) {
     db.exec("PRAGMA foreign_keys = OFF");
     db.exec("BEGIN");
     try {
@@ -99,7 +100,7 @@ export function migrate(db: DB): void {
           " id INTEGER PRIMARY KEY AUTOINCREMENT," +
           " mode TEXT NOT NULL CHECK (mode IN ('quick'))," +
           " scope TEXT NOT NULL DEFAULT 'unchecked' CHECK (scope IN" +
-          " ('unchecked','corrupt','suspect','missing','unreachable','all'))," +
+          " ('unchecked','corrupt','suspect','missing','unreachable','purged','all'))," +
           " source_id INTEGER REFERENCES sources(id) ON DELETE SET NULL," +
           " state TEXT NOT NULL DEFAULT 'running' CHECK (state IN ('running','done','cancelled'))," +
           " total INTEGER NOT NULL DEFAULT 0," +
@@ -124,6 +125,72 @@ export function migrate(db: DB): void {
       db.exec("PRAGMA foreign_keys = ON");
       throw err;
     }
+    db.exec("PRAGMA foreign_keys = ON");
+  }
+
+  // Purged ("Delete & re-search") files get their own status 'purged':
+  // older installs lock media_files.status to a CHECK without it. Widen it
+  // with the standard table-rebuild recipe (foreign keys off, copy rows,
+  // swap tables). An intermediate build called the status 're-searched' -
+  // those rows are renamed during the copy. Idempotent: skips once widened.
+  const mediaFilesSql =
+    (
+      db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'media_files'").get() as
+        { sql: string } | undefined
+    )?.sql ?? "";
+  if (mediaFilesSql.length > 0 && !mediaFilesSql.includes("'purged'")) {
+    db.exec("PRAGMA foreign_keys = OFF");
+    db.exec("BEGIN");
+    try {
+      db.exec(
+        "CREATE TABLE media_files_new (" +
+          " id INTEGER PRIMARY KEY AUTOINCREMENT," +
+          " source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE," +
+          " kind TEXT NOT NULL CHECK (kind IN ('movie','episode'))," +
+          " external_id TEXT NOT NULL," +
+          " title TEXT NOT NULL," +
+          " subtitle TEXT," +
+          " path TEXT NOT NULL," +
+          " size_bytes INTEGER," +
+          " quality TEXT," +
+          " status TEXT NOT NULL DEFAULT 'unchecked' CHECK (status IN" +
+          " ('unchecked','healthy','suspect','corrupt','missing','unreachable','purged'))," +
+          " duration_s REAL," +
+          " container TEXT," +
+          " video_codec TEXT," +
+          " audio_codec TEXT," +
+          " error_detail TEXT," +
+          " probe_json TEXT," +
+          " checked_at TEXT," +
+          " created_at TEXT NOT NULL DEFAULT (datetime('now'))," +
+          " updated_at TEXT NOT NULL DEFAULT (datetime('now'))," +
+          " UNIQUE (source_id, path))"
+      );
+      db.exec(
+        "INSERT INTO media_files_new (id, source_id, kind, external_id, title, subtitle, path, size_bytes," +
+          " quality, status, duration_s, container, video_codec, audio_codec, error_detail, probe_json," +
+          " checked_at, created_at, updated_at)" +
+          " SELECT id, source_id, kind, external_id, title, subtitle, path, size_bytes, quality," +
+          " CASE WHEN status = 're-searched' THEN 'purged' ELSE status END," +
+          " duration_s, container, video_codec, audio_codec, error_detail, probe_json, checked_at," +
+          " created_at, updated_at FROM media_files"
+      );
+      db.exec("DROP TABLE media_files");
+      db.exec("ALTER TABLE media_files_new RENAME TO media_files");
+      db.exec("COMMIT");
+    } catch (err) {
+      try {
+        db.exec("ROLLBACK");
+      } catch {
+        /* nothing to roll back */
+      }
+      db.exec("PRAGMA foreign_keys = ON");
+      throw err;
+    }
+    // The rebuild dropped the table's indexes (SCHEMA created them before
+    // this migration could run); put them back.
+    db.exec("CREATE INDEX IF NOT EXISTS idx_media_files_status ON media_files(status)");
+    db.exec("CREATE INDEX IF NOT EXISTS idx_media_files_source ON media_files(source_id)");
     db.exec("PRAGMA foreign_keys = ON");
   }
 }

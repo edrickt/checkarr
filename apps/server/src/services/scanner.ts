@@ -7,7 +7,7 @@ import { ApiError } from "../lib/api-error.js";
 const NL = String.fromCharCode(10);
 
 /** What a scan can target: one file status, or everything. */
-export type ScanScope = "unchecked" | "corrupt" | "suspect" | "missing" | "unreachable" | "all";
+export type ScanScope = "unchecked" | "corrupt" | "suspect" | "missing" | "unreachable" | "purged" | "all";
 
 export interface ClaimedItem {
   id: number;

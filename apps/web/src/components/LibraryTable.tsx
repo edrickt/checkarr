@@ -7,7 +7,7 @@ import { formatBytes, formatDuration, formatWhen } from "../utils";
 import StatusBadge from "./StatusBadge";
 import DetailModal from "./DetailModal";
 
-const STATUS_OPTIONS = ["", "healthy", "corrupt", "suspect", "missing", "unreachable", "unchecked"];
+const STATUS_OPTIONS = ["", "healthy", "corrupt", "suspect", "missing", "unreachable", "purged", "unchecked"];
 
 const INPUT =
   "border border-neutral-300 bg-white px-3 py-1.5 text-sm placeholder:text-neutral-400 focus:border-neutral-900 focus:outline-none";

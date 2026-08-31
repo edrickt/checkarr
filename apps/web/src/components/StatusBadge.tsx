@@ -4,6 +4,7 @@ const DOTS: Record<string, string> = {
   corrupt: "bg-red-500",
   missing: "bg-sky-500",
   unreachable: "bg-violet-500",
+  purged: "bg-fuchsia-500",
   unchecked: "bg-neutral-300"
 };
 
