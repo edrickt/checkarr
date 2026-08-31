@@ -1,6 +1,6 @@
 import { useMutation, useMutationState, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
-import type { ScanRun } from "./types";
+import type { ScanRun, ScanScope } from "./types";
 
 export interface ScanSnapshot {
   run: ScanRun | null;
@@ -16,7 +16,7 @@ export function useStartScan(onError?: (err: Error) => void) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationKey: ["startScan"],
-    mutationFn: (v: { scope: "unchecked" | "all"; sourceId?: number; sourceName?: string }) =>
+    mutationFn: (v: { scope: ScanScope; sourceId?: number; sourceName?: string }) =>
       api.startScan(v.scope, v.sourceId),
     onMutate: async (v) => {
       await queryClient.cancelQueries({ queryKey: ["scan"] });

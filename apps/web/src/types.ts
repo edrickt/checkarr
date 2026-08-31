@@ -1,5 +1,7 @@
 export type FileStatus = "unchecked" | "healthy" | "suspect" | "corrupt" | "missing" | "unreachable";
 
+export type ScanScope = "unchecked" | "corrupt" | "suspect" | "missing" | "unreachable" | "all";
+
 export interface MediaFile {
   id: number;
   sourceId: number;

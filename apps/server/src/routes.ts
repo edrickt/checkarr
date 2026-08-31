@@ -3,7 +3,7 @@ import fs from "node:fs";
 import { getSettings, saveSettings, type AppSettings, type PathMapping } from "./settings.js";
 import { binariesUsable, resolveBinaries } from "./services/ffmpeg.js";
 import { checkMediaFile, resolveLocalPath } from "./services/checker.js";
-import { persistOutcome, ScanManager } from "./services/scanner.js";
+import { persistOutcome, ScanManager, type ScanScope } from "./services/scanner.js";
 import { syncSource, testSource, type SourceCore } from "./services/sync.js";
 import { purgeFiles } from "./services/purge.js";
 import { ApiError } from "./lib/api-error.js";
@@ -291,12 +291,13 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
   });
 
   // ---- scan ----
+  const SCAN_SCOPES: ScanScope[] = ["unchecked", "corrupt", "suspect", "missing", "unreachable", "all"];
   app.post("/api/scan", async (req) => {
     const b = (req.body ?? {}) as Record<string, unknown>;
-    if (b.scope !== undefined && b.scope !== "unchecked" && b.scope !== "all") {
-      throw new ApiError(400, "scope must be 'unchecked' or 'all'");
+    if (b.scope !== undefined && !SCAN_SCOPES.includes(b.scope as ScanScope)) {
+      throw new ApiError(400, "scope must be one of: " + SCAN_SCOPES.join(", "));
     }
-    const scope = b.scope === "all" ? "all" : "unchecked";
+    const scope = (b.scope as ScanScope | undefined) ?? "unchecked";
     let sourceId: number | undefined;
     if (b.sourceId !== undefined && b.sourceId !== null) {
       sourceId = Number(b.sourceId);

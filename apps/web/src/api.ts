@@ -4,6 +4,7 @@ import type {
   FileStatus,
   PurgeResponse,
   ScanRun,
+  ScanScope,
   Settings,
   SettingsResponse,
   Source,
@@ -63,7 +64,7 @@ export const api = {
     return send<PurgeResponse>("POST", "/api/purge", body);
   },
   purgeFile: (id: number) => send<PurgeResponse>("POST", "/api/files/" + id + "/purge", {}),
-  startScan: (scope: "unchecked" | "all", sourceId?: number) =>
+  startScan: (scope: ScanScope, sourceId?: number) =>
     send<{ runId: number }>("POST", "/api/scan", sourceId !== undefined ? { scope, sourceId } : { scope }),
   cancelScan: () => send<{ ok: boolean }>("POST", "/api/scan/cancel"),
   currentScan: () => get<{ run: ScanRun | null; active: boolean }>("/api/scan/current"),

@@ -6,6 +6,9 @@ import { ApiError } from "../lib/api-error.js";
 
 const NL = String.fromCharCode(10);
 
+/** What a scan can target: one file status, or everything. */
+export type ScanScope = "unchecked" | "corrupt" | "suspect" | "missing" | "unreachable" | "all";
+
 export interface ClaimedItem {
   id: number;
   media_file_id: number;
@@ -71,7 +74,7 @@ export class ScanManager {
     return row;
   }
 
-  async start(scope: "unchecked" | "all", sourceId?: number): Promise<number> {
+  async start(scope: ScanScope, sourceId?: number): Promise<number> {
     // Claim synchronously, before any await: binariesUsable below spawns two
     // processes (~hundreds of ms), and two overlapping requests would both
     // pass an async gate and launch two full scans (reproduced in audit).
@@ -91,7 +94,7 @@ export class ScanManager {
     }
   }
 
-  private async begin(scope: "unchecked" | "all", sourceId?: number): Promise<number> {
+  private async begin(scope: ScanScope, sourceId?: number): Promise<number> {
     const settings = getSettings(this.db);
     const binaries = resolveBinaries(settings);
     const problem = await binariesUsable(binaries);
@@ -104,7 +107,11 @@ export class ScanManager {
     // which is exactly why pressing "scan" felt unresponsive.
     const clauses: string[] = [];
     const params: (string | number)[] = [];
-    if (scope === "unchecked") clauses.push("status = 'unchecked'");
+    // "all" scans everything; every other scope targets one file status.
+    if (scope !== "all") {
+      clauses.push("status = ?");
+      params.push(scope);
+    }
     if (sourceId !== undefined) {
       clauses.push("source_id = ?");
       params.push(sourceId);

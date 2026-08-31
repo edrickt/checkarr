@@ -50,7 +50,8 @@ const SCHEMA: string[] = [
   "CREATE TABLE IF NOT EXISTS scan_runs (" +
     " id INTEGER PRIMARY KEY AUTOINCREMENT," +
     " mode TEXT NOT NULL CHECK (mode IN ('quick'))," +
-    " scope TEXT NOT NULL DEFAULT 'unchecked' CHECK (scope IN ('unchecked','all'))," +
+    " scope TEXT NOT NULL DEFAULT 'unchecked' CHECK (scope IN" +
+    " ('unchecked','corrupt','suspect','missing','unreachable','all'))," +
     " source_id INTEGER REFERENCES sources(id) ON DELETE SET NULL," +
     " state TEXT NOT NULL DEFAULT 'running' CHECK (state IN ('running','done','cancelled'))," +
     " total INTEGER NOT NULL DEFAULT 0," +
@@ -80,6 +81,50 @@ export function migrate(db: DB): void {
   const cols = db.prepare("PRAGMA table_info(scan_runs)").all() as { name: string }[];
   if (!cols.some((c) => c.name === "source_id")) {
     db.exec("ALTER TABLE scan_runs ADD COLUMN source_id INTEGER REFERENCES sources(id) ON DELETE SET NULL");
+  }
+  // Older installs lock scan_runs.scope to ('unchecked','all') with a CHECK
+  // constraint; widen it with the standard table-rebuild recipe (foreign
+  // keys off, copy rows, swap tables). Idempotent: skips once widened.
+  const scanRunsSql =
+    (
+      db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'scan_runs'").get() as
+        { sql: string } | undefined
+    )?.sql ?? "";
+  if (scanRunsSql.length > 0 && !scanRunsSql.includes("'corrupt'")) {
+    db.exec("PRAGMA foreign_keys = OFF");
+    db.exec("BEGIN");
+    try {
+      db.exec(
+        "CREATE TABLE scan_runs_new (" +
+          " id INTEGER PRIMARY KEY AUTOINCREMENT," +
+          " mode TEXT NOT NULL CHECK (mode IN ('quick'))," +
+          " scope TEXT NOT NULL DEFAULT 'unchecked' CHECK (scope IN" +
+          " ('unchecked','corrupt','suspect','missing','unreachable','all'))," +
+          " source_id INTEGER REFERENCES sources(id) ON DELETE SET NULL," +
+          " state TEXT NOT NULL DEFAULT 'running' CHECK (state IN ('running','done','cancelled'))," +
+          " total INTEGER NOT NULL DEFAULT 0," +
+          " done INTEGER NOT NULL DEFAULT 0," +
+          " issues INTEGER NOT NULL DEFAULT 0," +
+          " started_at TEXT NOT NULL DEFAULT (datetime('now'))," +
+          " finished_at TEXT)"
+      );
+      db.exec(
+        "INSERT INTO scan_runs_new (id, mode, scope, source_id, state, total, done, issues, started_at, finished_at)" +
+          " SELECT id, mode, scope, source_id, state, total, done, issues, started_at, finished_at FROM scan_runs"
+      );
+      db.exec("DROP TABLE scan_runs");
+      db.exec("ALTER TABLE scan_runs_new RENAME TO scan_runs");
+      db.exec("COMMIT");
+    } catch (err) {
+      try {
+        db.exec("ROLLBACK");
+      } catch {
+        /* nothing to roll back */
+      }
+      db.exec("PRAGMA foreign_keys = ON");
+      throw err;
+    }
+    db.exec("PRAGMA foreign_keys = ON");
   }
 }
 

@@ -17,13 +17,6 @@ const BTN =
   "border border-neutral-300 bg-white px-3 py-1.5 text-sm text-neutral-700 hover:border-neutral-900 hover:text-neutral-900 disabled:opacity-40";
 const BTN_PRIMARY = "bg-neutral-900 px-3 py-1.5 text-sm text-white hover:bg-neutral-700 disabled:opacity-40";
 
-type StartScan = ReturnType<typeof useStartScan>;
-
-/** Show "Starting..." only on the button that was actually clicked. */
-function scanButtonLabel(m: StartScan, scope: "unchecked" | "all", idle: string): string {
-  return m.isPending && m.variables?.scope === scope ? "Starting..." : idle;
-}
-
 export default function Dashboard({
   onGoLibrary
 }: {
@@ -47,6 +40,7 @@ export default function Dashboard({
   const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources });
   // Which library the scan buttons target; empty string means every library.
   const [library, setLibrary] = useState<string>("");
+  const [scanOpen, setScanOpen] = useState(false);
   const [purgeOpen, setPurgeOpen] = useState(false);
 
   const notifyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -190,35 +184,82 @@ export default function Dashboard({
         <button onClick={() => sync.mutate(libraryId)} disabled={sync.isPending || active} className={BTN}>
           {sync.isPending ? "Syncing..." : "Sync library"}
         </button>
-        <button
-          onClick={() =>
-            startScan.mutate({
-              scope: "unchecked",
-              sourceId: libraryId,
-              sourceName: libraryName ?? undefined
-            })
-          }
-          disabled={active || startScan.isPending}
-          className={BTN_PRIMARY}
-        >
-          {scanButtonLabel(startScan, "unchecked", "Scan unchecked")}
-        </button>
-        <button
-          onClick={() => {
-            const where = libraryName ? " in " + libraryName : "";
-            if (
-              window.confirm(
-                "Re-check every file" + where + ", including healthy ones? This takes much longer."
-              )
-            ) {
-              startScan.mutate({ scope: "all", sourceId: libraryId, sourceName: libraryName ?? undefined });
-            }
-          }}
-          disabled={active || startScan.isPending}
-          className={BTN}
-        >
-          {scanButtonLabel(startScan, "all", "Re-scan everything")}
-        </button>
+        <div className="relative">
+          <button
+            onClick={() => setScanOpen((o) => !o)}
+            aria-haspopup="menu"
+            aria-expanded={scanOpen}
+            disabled={active || startScan.isPending}
+            className={BTN_PRIMARY}
+            title="Decode-probe the selected library"
+          >
+            <span className="inline-flex items-center gap-1.5">
+              {startScan.isPending ? "Starting..." : "Scan"}
+              <span
+                aria-hidden="true"
+                className={
+                  "inline-block text-[10px] leading-none transition-transform " +
+                  (scanOpen ? "rotate-180" : "")
+                }
+              >
+                &#9662;
+              </span>
+            </span>
+          </button>
+          {scanOpen && (
+            <>
+              <div className="fixed inset-0 z-10" onClick={() => setScanOpen(false)} />
+              <div className="absolute left-0 top-full z-20 mt-1 w-64 border border-neutral-200 bg-white py-1 shadow-lg">
+                {(
+                  [
+                    ["unchecked", "Unscanned", scopeByStatus.unchecked ?? 0],
+                    ["corrupt", "Corrupt", scopeByStatus.corrupt ?? 0],
+                    ["suspect", "Suspect", scopeByStatus.suspect ?? 0],
+                    ["missing", "Missing", scopeByStatus.missing ?? 0],
+                    ["unreachable", "Unreachable", scopeByStatus.unreachable ?? 0]
+                  ] as const
+                )
+                  .filter(([, , n]) => n > 0)
+                  .map(([scope, label, n]) => (
+                    <button
+                      key={scope}
+                      onClick={() => {
+                        setScanOpen(false);
+                        startScan.mutate({
+                          scope,
+                          sourceId: libraryId,
+                          sourceName: libraryName ?? undefined
+                        });
+                      }}
+                      className="block w-full px-3 py-2 text-left text-sm hover:bg-neutral-100"
+                    >
+                      {label} <span className="text-neutral-400">({n})</span>
+                    </button>
+                  ))}
+                <button
+                  onClick={() => {
+                    setScanOpen(false);
+                    const where = libraryName ? " in " + libraryName : "";
+                    if (
+                      window.confirm(
+                        "Re-check every file" + where + ", including healthy ones? This takes much longer."
+                      )
+                    ) {
+                      startScan.mutate({
+                        scope: "all",
+                        sourceId: libraryId,
+                        sourceName: libraryName ?? undefined
+                      });
+                    }
+                  }}
+                  className="block w-full px-3 py-2 text-left text-sm hover:bg-neutral-100"
+                >
+                  Everything <span className="text-neutral-400">({scopeTotal} files)</span>
+                </button>
+              </div>
+            </>
+          )}
+        </div>
         {scopeTotal > 0 && (
           <div className="relative">
             <button

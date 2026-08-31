@@ -181,6 +181,23 @@ describe("ScanManager", () => {
     expect(run.done).toBe(0); // the cascaded item must not count
   });
 
+  it("start('corrupt') claims only corrupt files", async () => {
+    const db = makeDb();
+    seedFile(db); // unchecked
+    const bid = seedFile(db, "/movies/b.mkv");
+    db.prepare("UPDATE media_files SET status = 'corrupt' WHERE id = ?").run(bid);
+    const m = new ScanManager(db);
+    await m.start("corrupt");
+    await settle(m);
+    const run = db.prepare("SELECT state, total, done FROM scan_runs").get() as any;
+    expect(run.state).toBe("done");
+    expect(run.total).toBe(1);
+    expect(run.done).toBe(1);
+    const statuses = db.prepare("SELECT path, status FROM media_files ORDER BY path").all() as any[];
+    expect(statuses.find((s) => s.path === "/movies/a.mkv").status).toBe("unchecked");
+    expect(statuses.find((s) => s.path === "/movies/b.mkv").status).toBe("healthy");
+  });
+
   it("cancel() while idle is a no-op that preserves the last run's state", async () => {
     const db = makeDb();
     seedFile(db);
