@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createServer, type Server } from "node:http";
 import { DatabaseSync } from "node:sqlite";
 import { migrate, type DB } from "../src/db.js";
-import { syncSource } from "../src/services/sync.js";
+import { syncOneItem, syncSource } from "../src/services/sync.js";
 
 function makeDb(): DB {
   const db = new DatabaseSync(":memory:");
@@ -135,6 +135,24 @@ describe("sync", () => {
             includeFile ? e : { ...e, episodeFile: null }
           )
         );
+      }
+      // Single-item fetches used by syncOneItem.
+      const oneMovie = /^\/api\/v3\/movie\/(\d+)$/.exec(u.pathname);
+      if (oneMovie) {
+        const m = MOVIES.find((mv) => String(mv.id) === oneMovie[1]);
+        return m ? json(m) : res.writeHead(404).end("{}");
+      }
+      const oneSeries = /^\/api\/v3\/series\/(\d+)$/.exec(u.pathname);
+      if (oneSeries) {
+        const s = SERIES.find((sv) => String(sv.id) === oneSeries[1]);
+        return s ? json(s) : res.writeHead(404).end("{}");
+      }
+      const oneEpisode = /^\/api\/v3\/episode\/(\d+)$/.exec(u.pathname);
+      if (oneEpisode) {
+        const e = EPISODES.find((ep) => String(ep.id) === oneEpisode[1]);
+        if (!e) return res.writeHead(404).end("{}");
+        const includeFile = u.searchParams.get("includeEpisodeFile") === "true";
+        return json(includeFile ? e : { ...e, episodeFile: null });
       }
       res.writeHead(404).end("{}");
     });
@@ -414,5 +432,213 @@ describe("sync", () => {
       last_sync_error: string | null;
     };
     expect(srow.last_sync_error).toBeNull(); // syncSource rethrows; caller records the error
+  });
+
+  describe("syncOneItem (single-item sync for per-file operations)", () => {
+    function insertRow(
+      db: DB,
+      over: Partial<{
+        source_id: number;
+        kind: string;
+        external_id: string;
+        title: string;
+        path: string | null;
+        status: string;
+        error_detail: string | null;
+      }>
+    ): number {
+      const r = db
+        .prepare(
+          "INSERT INTO media_files (source_id, kind, external_id, title, path, status, error_detail)" +
+            " VALUES (?, ?, ?, ?, ?, ?, ?)"
+        )
+        .run(
+          over.source_id ?? 1,
+          over.kind ?? "movie",
+          over.external_id ?? "1",
+          over.title ?? "Row",
+          over.path ?? null,
+          over.status ?? "missing",
+          over.error_detail ?? null
+        );
+      return Number(r.lastInsertRowid);
+    }
+
+    function rowById(db: DB, id: number): Record<string, unknown> | undefined {
+      return db
+        .prepare(
+          "SELECT id, external_id, title, subtitle, path, size_bytes, quality, status, error_detail, checked_at FROM media_files WHERE id = ?"
+        )
+        .get(id) as Record<string, unknown> | undefined;
+    }
+
+    it("relinks a missing row when the download has landed, resetting it to unchecked", async () => {
+      const db = makeDb();
+      const src = insertSource(db, "radarr", url, "good-key");
+      const id = insertRow(db, { external_id: "9", status: "missing" });
+      MOVIES.push({
+        id: 9,
+        title: "Nine",
+        year: 2026,
+        monitored: true,
+        movieFile: { path: "/movies/nine.mkv", size: 999, quality: { quality: { name: "WEBDL-1080p" } } }
+      });
+      try {
+        const r = await syncOneItem(db, src, { id, externalId: "9" });
+        expect(r).toEqual({ found: true, changed: true });
+        expect(rowById(db, id)).toMatchObject({
+          path: "/movies/nine.mkv",
+          status: "unchecked",
+          size_bytes: 999,
+          quality: "WEBDL-1080p",
+          title: "Nine",
+          error_detail: null,
+          checked_at: null
+        });
+      } finally {
+        MOVIES.pop();
+      }
+    });
+
+    it("keeps the verdict when the path is unchanged and refreshes metadata", async () => {
+      const db = makeDb();
+      const src = insertSource(db, "radarr", url, "good-key");
+      await syncSource(db, src); // creates the /movies/alpha.mkv row
+      db.prepare("UPDATE media_files SET status = 'corrupt', error_detail = 'boom' WHERE id = 1").run();
+      const r = await syncOneItem(db, src, { id: 1, externalId: "1" });
+      expect(r).toEqual({ found: true, changed: false });
+      expect(rowById(db, 1)).toMatchObject({
+        path: "/movies/alpha.mkv",
+        status: "corrupt",
+        error_detail: "boom",
+        size_bytes: 123,
+        quality: "WEBDL-1080p"
+      });
+    });
+
+    it("parks the row as missing when the *arr no longer has the file", async () => {
+      const db = makeDb();
+      const src = insertSource(db, "radarr", url, "good-key");
+      await syncSource(db, src);
+      db.prepare("UPDATE media_files SET status = 'corrupt', error_detail = 'boom' WHERE id = 1").run();
+      const original = MOVIES[0].movieFile;
+      MOVIES[0].movieFile = null;
+      try {
+        const r = await syncOneItem(db, src, { id: 1, externalId: "1" });
+        expect(r).toEqual({ found: true, changed: true });
+        expect(rowById(db, 1)).toMatchObject({
+          path: null,
+          status: "missing",
+          error_detail: null,
+          size_bytes: null
+        });
+      } finally {
+        MOVIES[0].movieFile = original;
+      }
+    });
+
+    it("keeps a purged row purged while the *arr still has no file", async () => {
+      const db = makeDb();
+      const src = insertSource(db, "radarr", url, "good-key");
+      await syncSource(db, src);
+      db.prepare("UPDATE media_files SET status = 'purged' WHERE id = 1").run();
+      const original = MOVIES[0].movieFile;
+      MOVIES[0].movieFile = null;
+      try {
+        const r = await syncOneItem(db, src, { id: 1, externalId: "1" });
+        expect(r).toEqual({ found: true, changed: true });
+        expect(rowById(db, 1)).toMatchObject({ path: null, status: "purged" });
+      } finally {
+        MOVIES[0].movieFile = original;
+      }
+    });
+
+    it("removes the row when the *arr no longer knows the item", async () => {
+      const db = makeDb();
+      const src = insertSource(db, "radarr", url, "good-key");
+      const id = insertRow(db, { external_id: "777", path: "/movies/gone.mkv", status: "healthy" });
+      const r = await syncOneItem(db, src, { id, externalId: "777" });
+      expect(r).toEqual({ found: false, changed: true });
+      expect(rowById(db, id)).toBeUndefined();
+    });
+
+    it("removes the row when the item became unmonitored with no file", async () => {
+      const db = makeDb();
+      const src = insertSource(db, "radarr", url, "good-key");
+      await syncSource(db, src);
+      const original = { monitored: MOVIES[0].monitored, movieFile: MOVIES[0].movieFile };
+      MOVIES[0].monitored = false;
+      MOVIES[0].movieFile = null;
+      try {
+        const r = await syncOneItem(db, src, { id: 1, externalId: "1" });
+        expect(r).toEqual({ found: false, changed: true });
+        expect(rowById(db, 1)).toBeUndefined();
+      } finally {
+        MOVIES[0].monitored = original.monitored;
+        MOVIES[0].movieFile = original.movieFile;
+      }
+    });
+
+    it("does not relink onto a path another row already owns", async () => {
+      const db = makeDb();
+      const src = insertSource(db, "radarr", url, "good-key");
+      await syncSource(db, src); // row 1 owns /movies/alpha.mkv
+      const id = insertRow(db, { external_id: "22", status: "missing" });
+      MOVIES.push({
+        id: 22,
+        title: "Shared",
+        year: 2027,
+        monitored: true,
+        movieFile: { path: "/movies/alpha.mkv", size: 1, quality: { quality: { name: "WEBDL-1080p" } } }
+      });
+      try {
+        const r = await syncOneItem(db, src, { id, externalId: "22" });
+        expect(r).toEqual({ found: true, changed: false });
+        expect(rowById(db, id)).toMatchObject({ path: null, status: "missing" });
+        expect(rowById(db, 1)).toMatchObject({ path: "/movies/alpha.mkv", external_id: "1" });
+      } finally {
+        MOVIES.pop();
+      }
+    });
+
+    it("relinks a missing episode row with the series title and season/episode subtitle", async () => {
+      const db = makeDb();
+      const src = insertSource(db, "sonarr", url, "good-key");
+      const id = insertRow(db, {
+        kind: "episode",
+        external_id: "13",
+        title: "Old Title",
+        status: "missing"
+      });
+      const original = { monitored: EPISODES[2].monitored, episodeFile: EPISODES[2].episodeFile };
+      EPISODES[2].monitored = true;
+      EPISODES[2].episodeFile = {
+        path: "/tv/beta/s01e04.mkv",
+        size: 313,
+        quality: { quality: { name: "HDTV-720p" } }
+      };
+      try {
+        const r = await syncOneItem(db, src, { id, externalId: "13" });
+        expect(r).toEqual({ found: true, changed: true });
+        expect(rowById(db, id)).toMatchObject({
+          title: "Beta Show",
+          path: "/tv/beta/s01e04.mkv",
+          status: "unchecked",
+          size_bytes: 313
+        });
+        expect(String(rowById(db, id)!.subtitle)).toContain("S01E04");
+      } finally {
+        EPISODES[2].monitored = original.monitored;
+        EPISODES[2].episodeFile = original.episodeFile;
+      }
+    });
+
+    it("propagates *arr failures", async () => {
+      const db = makeDb();
+      const src = insertSource(db, "radarr", url, "wrong-key");
+      const id = insertRow(db, { external_id: "1", path: "/movies/alpha.mkv", status: "healthy" });
+      await expect(syncOneItem(db, src, { id, externalId: "1" })).rejects.toThrow(/Unauthorized/);
+      expect(rowById(db, id)).toMatchObject({ status: "healthy" }); // failure changed nothing
+    });
   });
 });

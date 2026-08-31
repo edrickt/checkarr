@@ -95,19 +95,24 @@ CHECKARR_WEB_DIST, LOG_LEVEL.
     DELETE /api/sources/:id               delete source and its files
     POST   /api/sources/:id/test          verify URL + key (GET /api/v3/system/status)
     POST   /api/sync                      pull libraries from all enabled sources (or { sourceId }); 409 while a scan runs
-    POST   /api/scan                      { scope: unchecked|corrupt|suspect|missing|unreachable|purged|all, sourceId? }
-    POST   /api/purge                     { status: corrupt|suspect|all, sourceId? } delete files at the *arr source(s) + search replacements; deleted files move to the purged status
-    POST   /api/files/:id/purge           delete one file at its *arr source + search replacement
+    POST   /api/scan                      { scope: unchecked|corrupt|suspect|missing|unreachable|purged|all, sourceId? } - syncs the library first
+    POST   /api/purge                     { status: corrupt|suspect|all, sourceId? } delete files at the *arr source(s) + search replacements (syncs the library first); deleted files move to the purged status
+    POST   /api/files/:id/purge           delete one file at its *arr source + search replacement (syncs the item first)
     POST   /api/scan/cancel               stop the running scan
     GET    /api/scan/current              progress of the active/last run
     GET    /api/files?status=&sourceId=&q=&page=&pageSize=&sort=title|status|size|checked&dir=asc|desc    library listing
     GET    /api/files/:id                 full detail incl. ffmpeg findings
-    POST   /api/files/:id/recheck         re-run the quick check on one file
+    POST   /api/files/:id/recheck         re-run the quick check on one file (syncs the item from the *arr first)
     GET    /api/files/:id/stream          Range-aware streaming for the browser player
 
 ## Notes and assumptions
 
 - Checkarr is a read-only *arr client: it never modifies Radarr/Sonarr data.
+- Every operation that touches the library syncs first: per-file operations (Re-check now,
+  per-file Delete & re-search) sync that one item from its *arr, and batch operations (scan,
+  bulk delete) run the same library sync as the "Sync libraries" button. A 404 at the *arr
+  removes the row, a newly downloaded file is picked up right away, and a *arr outage fails
+  the request instead of acting on stale data.
 - The server binds to 127.0.0.1 by default and has no authentication - don't expose it to the
   internet as-is.
 - API keys sit in the local database as plaintext.

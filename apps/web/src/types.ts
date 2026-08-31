@@ -115,6 +115,19 @@ export interface SyncResponse {
   }[];
 }
 
+/** Per-source library sync summary attached to batch operations (they sync first). */
+export interface BatchSyncSummary {
+  sourceId: number;
+  name: string;
+  ok: boolean;
+  added?: number;
+  relinked?: number;
+  updated?: number;
+  removed?: number;
+  total?: number;
+  error?: string;
+}
+
 export interface PurgeResponse {
   results: {
     sourceId: number;
@@ -126,6 +139,8 @@ export interface PurgeResponse {
     errors: string[];
   }[];
   total: number;
+  /** The library sync that ran before the purge. */
+  synced: BatchSyncSummary[];
 }
 
 export interface FileQuery {

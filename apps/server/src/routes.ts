@@ -2,9 +2,16 @@ import type { FastifyInstance } from "fastify";
 import fs from "node:fs";
 import { getSettings, saveSettings, type AppSettings, type PathMapping } from "./settings.js";
 import { binariesUsable, resolveBinaries } from "./services/ffmpeg.js";
-import { checkMediaFile, resolveLocalPath } from "./services/checker.js";
+import { checkMediaFile, resolveLocalPath, type CheckOutcome } from "./services/checker.js";
 import { persistCheckOutcome, ScanManager, type ScanScope } from "./services/scanner.js";
-import { syncSource, testSource, type SourceCore } from "./services/sync.js";
+import {
+  syncOneItem,
+  syncSource,
+  testSource,
+  type ItemSyncResult,
+  type SourceCore,
+  type SyncResult
+} from "./services/sync.js";
 import { purgeFiles } from "./services/purge.js";
 import { ApiError } from "./lib/api-error.js";
 import type { DB } from "./db.js";
@@ -110,6 +117,120 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
       .get(id) as unknown as SourceRow | undefined;
     if (!row) throw new ApiError(404, "source not found");
     return row;
+  };
+
+  // ---- single-item operations sync first ----
+  // The *arr is the source of truth, and a media_files row can be stale: a
+  // movie downloaded after the last library sync still sits here with no
+  // path ('missing'), a file may have been replaced or removed entirely.
+  // Every per-file operation therefore refreshes its row from the *arr
+  // before acting - the single-item equivalent of "Sync libraries" - so a
+  // re-check can pick a new download up and a delete cannot act on a path
+  // the *arr no longer points at.
+  interface FileWithSource {
+    id: number;
+    external_id: string;
+    source_id: number;
+    source_enabled: number;
+    source_type: string;
+    source_name: string;
+    source_base_url: string;
+    source_api_key: string;
+  }
+  const getFileWithSource = (rawId: unknown): FileWithSource | undefined => {
+    const id = Number(rawId);
+    if (!Number.isInteger(id)) throw new ApiError(400, "invalid file id");
+    return db
+      .prepare(
+        "SELECT mf.id, mf.external_id, s.id AS source_id, s.enabled AS source_enabled, s.type AS source_type," +
+          " s.name AS source_name, s.base_url AS source_base_url, s.api_key AS source_api_key" +
+          " FROM media_files mf JOIN sources s ON s.id = mf.source_id WHERE mf.id = ?"
+      )
+      .get(id) as FileWithSource | undefined;
+  };
+  const syncSingleItem = async (file: FileWithSource, operation: string): Promise<ItemSyncResult> => {
+    const source: SourceCore = {
+      id: file.source_id,
+      type: file.source_type,
+      name: file.source_name,
+      base_url: file.source_base_url,
+      api_key: file.source_api_key
+    };
+    try {
+      return await syncOneItem(db, source, { id: file.id, externalId: file.external_id });
+    } catch (err) {
+      throw new ApiError(
+        502,
+        "cannot sync '" +
+          file.source_name +
+          "' from the *arr before " +
+          operation +
+          ": " +
+          String((err as Error)?.message ?? err)
+      );
+    }
+  };
+
+  // ---- batch operations sync first ----
+  // Scans and bulk deletes select and act on rows by what the DB says, so a
+  // library synced hours ago means stale verdicts: files that landed in the
+  // meantime are skipped, files that left are checked and deleted on stale
+  // paths. Every batch operation therefore runs the same library sync the
+  // "Sync libraries" button does (all enabled sources, or just the scoped
+  // one) before it starts. A source that fails to sync aborts the batch -
+  // acting on a half-stale library is the bug this prevents - while the
+  // sources that synced before the failure keep their refresh.
+  interface BatchSyncResult extends SyncResult {
+    sourceId: number;
+    name: string;
+    ok: boolean;
+    error?: string;
+  }
+  const syncSourcesForBatch = async (
+    sourceId: number | undefined,
+    operation: string
+  ): Promise<BatchSyncResult[]> => {
+    const sources: SourceRow[] =
+      sourceId !== undefined
+        ? [getSource(sourceId)] // explicit scope: sync it even when disabled, like /api/sync does
+        : (db
+            .prepare(
+              "SELECT id, type, name, base_url, api_key, enabled, last_sync_at, last_sync_error" +
+                " FROM sources WHERE enabled = 1 ORDER BY id"
+            )
+            .all() as unknown as SourceRow[]);
+    if (sources.length === 0) {
+      throw new ApiError(
+        400,
+        "no enabled sources to sync before " + operation + " - enable a source in Settings"
+      );
+    }
+    const results: BatchSyncResult[] = [];
+    const failures: string[] = [];
+    for (const s of sources) {
+      try {
+        results.push({ sourceId: s.id, name: s.name, ok: true, ...(await syncSource(db, s)) });
+      } catch (err) {
+        const msg = String((err as Error)?.message ?? err);
+        db.prepare("UPDATE sources SET last_sync_error = ? WHERE id = ?").run(msg, s.id);
+        results.push({
+          sourceId: s.id,
+          name: s.name,
+          ok: false,
+          added: 0,
+          relinked: 0,
+          updated: 0,
+          removed: 0,
+          total: 0,
+          error: msg
+        });
+        failures.push(s.name + ": " + msg);
+      }
+    }
+    if (failures.length > 0) {
+      throw new ApiError(502, "cannot sync the library before " + operation + " - " + failures.join("; "));
+    }
+    return results;
   };
 
   // ---- settings ----
@@ -290,7 +411,11 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
       if (!Number.isInteger(sourceId)) throw new ApiError(400, "sourceId must be an integer");
       getSource(sourceId); // 404 when the source does not exist
     }
-    return purgeFiles(db, { status, sourceId });
+    // Sync first, then delete: the status selection and the path checks must
+    // reflect what the *arr reports now, not what the last manual sync saw.
+    const synced = await syncSourcesForBatch(sourceId, "delete");
+    const result = await purgeFiles(db, { status, sourceId });
+    return { ...result, synced };
   });
 
   // ---- scan ----
@@ -315,8 +440,15 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
       if (!Number.isInteger(sourceId)) throw new ApiError(400, "sourceId must be an integer");
       getSource(sourceId); // 404 when the source does not exist
     }
+    // Sync first, then pick up the scope: a scan of 'missing' must see the
+    // downloads that landed since the last sync, and a scan of 'corrupt'
+    // must not chase files the *arr has already replaced. A scan running in
+    // parallel would both race the sync and relink rows mid-flight, so the
+    // usual gate applies before syncing.
+    if (scans.isActive()) throw new ApiError(409, "A scan is running - wait for it to finish or cancel it");
+    const synced = await syncSourcesForBatch(sourceId, "scan");
     const runId = await scans.start(scope, sourceId);
-    return { runId, scope, sourceId: sourceId ?? null };
+    return { runId, scope, sourceId: sourceId ?? null, synced };
   });
 
   app.post("/api/scan/cancel", async () => {
@@ -468,14 +600,15 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
     if (scans.isActive()) throw new ApiError(409, "A scan is running - wait for it to finish or cancel it");
     const id = Number((req.params as { id: string }).id);
     if (!Number.isInteger(id)) throw new ApiError(400, "invalid file id");
-    const row = db
-      .prepare(
-        "SELECT mf.id, s.enabled FROM media_files mf JOIN sources s ON s.id = mf.source_id WHERE mf.id = ?"
-      )
-      .get(id) as { id: number; enabled: number } | undefined;
+    const row = getFileWithSource(id);
     if (!row) throw new ApiError(404, "file not found");
-    if (!row.enabled)
+    if (!row.source_enabled)
       throw new ApiError(409, "this file's source is disabled - enable it in Settings to purge");
+    // Sync the item first: a stale path must not be deleted, and the *arr
+    // may have already removed the file itself.
+    const synced = await syncSingleItem(row, "delete");
+    if (!synced.found)
+      throw new ApiError(404, "the *arr no longer has this item - it was removed during sync");
     return purgeFiles(db, { fileId: id });
   });
 
@@ -483,25 +616,35 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
     if (scans.isActive()) throw new ApiError(409, "A scan is running - wait for it to finish or cancel it");
     const id = Number((req.params as { id: string }).id);
     if (!Number.isInteger(id)) throw new ApiError(400, "invalid file id");
+    const row = getFileWithSource(id);
+    if (!row) throw new ApiError(404, "file not found");
+    // Sync the item before judging it: the row in our DB may predate the
+    // download. Without this a 'missing' row could never leave 'missing' by
+    // re-checking - the file only lands via a full library sync.
+    const synced = await syncSingleItem(row, "re-check");
+    if (!synced.found)
+      throw new ApiError(404, "the *arr no longer has this item - it was removed during sync");
     const file = db.prepare("SELECT id, path, status FROM media_files WHERE id = ?").get(id) as
       { id: number; path: string | null; status: string } | undefined;
     if (!file) throw new ApiError(404, "file not found");
+    let outcome: CheckOutcome;
     if (file.path === null) {
-      // Monitored with no file at the *arr: nothing to decode, report missing
-      // without spinning up ffmpeg.
-      const outcome = {
-        status: "missing" as const,
+      // Monitored with no file at the *arr (re-verified by the sync above):
+      // nothing to decode, report missing without spinning up ffmpeg. A
+      // purged row goes through the same persist guard as any verdict, so it
+      // stays purged while it waits for its replacement.
+      outcome = {
+        status: "missing",
         detail: "no file at the *arr - monitored, not downloaded yet",
         probe: null
       };
-      persistCheckOutcome(db, file, outcome);
-      return { id: file.id, status: outcome.status, detail: outcome.detail };
+    } else {
+      const settings = getSettings(db);
+      const binaries = resolveBinaries(settings);
+      const problem = await binariesUsable(binaries);
+      if (problem) throw new ApiError(400, problem);
+      outcome = await checkMediaFile(file.path, { binaries, mappings: settings.pathMappings });
     }
-    const settings = getSettings(db);
-    const binaries = resolveBinaries(settings);
-    const problem = await binariesUsable(binaries);
-    if (problem) throw new ApiError(400, problem);
-    const outcome = await checkMediaFile(file.path, { binaries, mappings: settings.pathMappings });
     const verdict = persistCheckOutcome(db, file, outcome);
     if (verdict.wrote) return { id: file.id, status: verdict.status, detail: outcome.detail };
     if (verdict.reason === "purged-awaiting-replacement") {

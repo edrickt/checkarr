@@ -32,7 +32,7 @@ export async function fetchArr(
   baseUrl: string,
   apiKey: string,
   apiPath: string,
-  init?: { method?: string; body?: unknown }
+  init?: { method?: string; body?: unknown; notFoundOk?: boolean }
 ): Promise<unknown> {
   const root = trimSlashes(baseUrl);
   const method = init?.method ?? "GET";
@@ -56,6 +56,7 @@ export async function fetchArr(
     throw new Error("Cannot reach " + root + " : " + String((err as Error)?.message ?? err), { cause: err });
   }
   if (res.status === 401) throw new Error("Unauthorized (401) - check the API key");
+  if (res.status === 404 && init?.notFoundOk) return null;
   if (!res.ok) throw new Error(method + " " + apiPath + " failed: HTTP " + res.status + " " + res.statusText);
   if (text.trim().length === 0) return null;
   try {
@@ -97,42 +98,81 @@ function qualityName(q?: QualityWrapped): string | null {
   return q?.quality?.name ?? null;
 }
 
+/** One Radarr movie -> a sync entry, or null when the *arr does not track it
+ *  (unmonitored with no file is not part of the library). */
+function radarrEntry(m: RadarrMovie): SyncEntry | null {
+  const f = m.movieFile;
+  const filePath = f && typeof f.path === "string" && f.path.length > 0 ? f.path : null;
+  if (filePath === null) {
+    // The *arr API is the library's source of truth: a monitored movie
+    // without a file is tracked as missing, not invisible.
+    if (m.monitored === false) return null;
+    return {
+      externalId: String(m.id),
+      title: String(m.title ?? "Untitled"),
+      subtitle: typeof m.year === "number" ? String(m.year) : null,
+      path: null,
+      sizeBytes: null,
+      quality: null
+    };
+  }
+  return {
+    externalId: String(m.id),
+    title: String(m.title ?? "Untitled"),
+    subtitle: typeof m.year === "number" ? String(m.year) : null,
+    path: filePath,
+    sizeBytes: typeof f?.size === "number" ? f.size : null,
+    quality: qualityName(f?.quality)
+  };
+}
+
 export async function radarrEntries(baseUrl: string, apiKey: string): Promise<SyncEntry[]> {
   const movies = (await fetchArr(baseUrl, apiKey, "/api/v3/movie")) as RadarrMovie[];
   const out: SyncEntry[] = [];
   for (const m of Array.isArray(movies) ? movies : []) {
-    const f = m.movieFile;
-    const filePath = f && typeof f.path === "string" && f.path.length > 0 ? f.path : null;
-    if (filePath === null) {
-      // The *arr API is the library's source of truth: a monitored movie
-      // without a file is tracked as missing, not invisible.
-      if (m.monitored === false) continue;
-      out.push({
-        externalId: String(m.id),
-        title: String(m.title ?? "Untitled"),
-        subtitle: typeof m.year === "number" ? String(m.year) : null,
-        path: null,
-        sizeBytes: null,
-        quality: null
-      });
-      continue;
-    }
-    out.push({
-      externalId: String(m.id),
-      title: String(m.title ?? "Untitled"),
-      subtitle: typeof m.year === "number" ? String(m.year) : null,
-      path: filePath,
-      sizeBytes: typeof f?.size === "number" ? f.size : null,
-      quality: qualityName(f?.quality)
-    });
+    const e = radarrEntry(m);
+    if (e !== null) out.push(e);
   }
   return out;
+}
+
+function padNumber(n?: number): string {
+  return typeof n === "number" ? String(n).padStart(2, "0") : "??";
+}
+
+/** One Sonarr episode (with its series for the title) -> a sync entry, or
+ *  null when the *arr does not track it. */
+function sonarrEntry(s: SonarrSeries, e: SonarrEpisode): SyncEntry | null {
+  const f = e.episodeFile;
+  const filePath = f && typeof f.path === "string" && f.path.length > 0 ? f.path : null;
+  const subtitle =
+    "S" + padNumber(e.seasonNumber) + "E" + padNumber(e.episodeNumber) + (e.title ? " " + e.title : "");
+  const title = String(s.title ?? "Series " + s.id);
+  if (filePath === null) {
+    // Same rule as Radarr: a monitored episode without a file is missing.
+    if (e.monitored === false) return null;
+    return {
+      externalId: String(e.id),
+      title,
+      subtitle,
+      path: null,
+      sizeBytes: null,
+      quality: null
+    };
+  }
+  return {
+    externalId: String(e.id),
+    title,
+    subtitle,
+    path: filePath,
+    sizeBytes: typeof f?.size === "number" ? f.size : null,
+    quality: qualityName(f?.quality)
+  };
 }
 
 export async function sonarrEntries(baseUrl: string, apiKey: string): Promise<SyncEntry[]> {
   const series = (await fetchArr(baseUrl, apiKey, "/api/v3/series")) as SonarrSeries[];
   const out: SyncEntry[] = [];
-  const pad = (n?: number): string => (typeof n === "number" ? String(n).padStart(2, "0") : "??");
   // Sonarr's /api/v3/episode requires a seriesId (bare calls get HTTP 400) and only
   // embeds episodeFile when includeEpisodeFile=true, so fetch series by series.
   for (const s of Array.isArray(series) ? series : []) {
@@ -154,29 +194,8 @@ export async function sonarrEntries(baseUrl: string, apiKey: string): Promise<Sy
       );
     }
     for (const e of Array.isArray(episodes) ? episodes : []) {
-      const f = e.episodeFile;
-      const filePath = f && typeof f.path === "string" && f.path.length > 0 ? f.path : null;
-      if (filePath === null) {
-        // Same rule as Radarr: a monitored episode without a file is missing.
-        if (e.monitored === false) continue;
-        out.push({
-          externalId: String(e.id),
-          title: String(s.title ?? "Series " + s.id),
-          subtitle: "S" + pad(e.seasonNumber) + "E" + pad(e.episodeNumber) + (e.title ? " " + e.title : ""),
-          path: null,
-          sizeBytes: null,
-          quality: null
-        });
-        continue;
-      }
-      out.push({
-        externalId: String(e.id),
-        title: String(s.title ?? "Series " + s.id),
-        subtitle: "S" + pad(e.seasonNumber) + "E" + pad(e.episodeNumber) + (e.title ? " " + e.title : ""),
-        path: filePath,
-        sizeBytes: typeof f?.size === "number" ? f.size : null,
-        quality: qualityName(f?.quality)
-      });
+      const entry = sonarrEntry(s, e);
+      if (entry !== null) out.push(entry);
     }
   }
   return out;
@@ -351,4 +370,123 @@ export async function syncSource(db: DB, source: SourceCore): Promise<SyncResult
     }
     throw err;
   }
+}
+
+export interface ItemSyncResult {
+  /** false = the *arr no longer knows this item (gone, or unmonitored with
+   *  no file): the row was removed, exactly as a full sync's cleanup would. */
+  found: boolean;
+  /** true = the refresh moved the row (relink, unfile, remove). A metadata
+   *  refresh on an unchanged path does not count: verdicts stay intact. */
+  changed: boolean;
+}
+
+/**
+ * Refresh ONE media_files row from its *arr: the single-item equivalent of
+ * syncSource. Single-item operations (re-check, per-file delete) run this
+ * first so they act on what the *arr reports now instead of what the last
+ * library sync saw - otherwise a movie downloaded after the last sync stays
+ * 'missing' forever no matter how often it is re-checked.
+ *
+ * Same semantics as syncSource, scoped to the row:
+ * - unchanged path: metadata refresh, verdicts kept
+ * - file landed/moved to a free path: relink, verdicts reset to unchecked
+ * - file gone: park as missing (a purged row stays purged)
+ * - item untracked (404 / unmonitored with no file): row removed
+ *
+ * Network or auth failures throw; callers decide how to surface them.
+ */
+export async function syncOneItem(
+  db: DB,
+  source: SourceCore,
+  row: { id: number; externalId: string }
+): Promise<ItemSyncResult> {
+  let entry: SyncEntry | null;
+  if (source.type === "radarr") {
+    const m = (await fetchArr(source.base_url, source.api_key, "/api/v3/movie/" + row.externalId, {
+      notFoundOk: true
+    })) as RadarrMovie | null;
+    entry = m !== null && typeof m === "object" ? radarrEntry(m) : null;
+  } else {
+    const e = (await fetchArr(
+      source.base_url,
+      source.api_key,
+      "/api/v3/episode/" + row.externalId + "?includeEpisodeFile=true",
+      { notFoundOk: true }
+    )) as SonarrEpisode | null;
+    if (e === null || typeof e !== "object" || typeof e.seriesId !== "number") {
+      entry = null;
+    } else {
+      const s = (await fetchArr(source.base_url, source.api_key, "/api/v3/series/" + e.seriesId, {
+        notFoundOk: true
+      })) as SonarrSeries | null;
+      entry = s !== null && typeof s === "object" ? sonarrEntry(s, e) : null;
+    }
+  }
+
+  const kind = source.type === "radarr" ? "movie" : "episode";
+  const currentPath = db.prepare("SELECT path FROM media_files WHERE id = ?").get(row.id) as
+    { path: string | null } | undefined;
+
+  if (entry === null) {
+    // The *arr no longer tracks this item: drop the row, matching the full
+    // sync's cleanup. Guarded so a concurrent removal is not an error.
+    const info = db
+      .prepare("DELETE FROM media_files WHERE id = ? AND source_id = ? AND kind = ? AND external_id = ?")
+      .run(row.id, source.id, kind, row.externalId);
+    return { found: false, changed: Number(info.changes) > 0 };
+  }
+
+  const now = new Date().toISOString();
+  if (currentPath === undefined) return { found: false, changed: false };
+
+  if (entry.path === null) {
+    // Monitored but still no file: park the row as missing (a purged row
+    // stays purged while it waits for the replacement). Already fileless:
+    // nothing to change.
+    if (currentPath.path === null) return { found: true, changed: false };
+    db.prepare(
+      "UPDATE media_files SET path = NULL, title = ?, subtitle = ?, size_bytes = NULL, quality = NULL," +
+        " status = CASE WHEN status = 'purged' THEN 'purged' ELSE 'missing' END," +
+        " error_detail = NULL, duration_s = NULL, container = NULL, video_codec = NULL," +
+        " audio_codec = NULL, probe_json = NULL, checked_at = NULL, updated_at = ?" +
+        " WHERE id = ? AND source_id = ? AND kind = ? AND external_id = ?"
+    ).run(entry.title, entry.subtitle, now, row.id, source.id, kind, row.externalId);
+    return { found: true, changed: true };
+  }
+
+  if (currentPath.path === entry.path) {
+    // Same file as before: refresh metadata, keep every verdict.
+    db.prepare(
+      "UPDATE media_files SET title = ?, subtitle = ?, size_bytes = ?, quality = ?, updated_at = ? WHERE id = ?"
+    ).run(entry.title, entry.subtitle, entry.sizeBytes, entry.quality, now, row.id);
+    return { found: true, changed: false };
+  }
+
+  // New path. Relink only when nothing else owns it: paths are UNIQUE per
+  // source, and a multi-episode file belongs to the row the last full sync
+  // gave it to - leave this row alone and let the next full sync reconcile.
+  const occupant = db
+    .prepare("SELECT id FROM media_files WHERE source_id = ? AND path = ? AND id != ?")
+    .get(source.id, entry.path, row.id);
+  if (occupant !== undefined) return { found: true, changed: false };
+  db.prepare(
+    "UPDATE media_files SET path = ?, external_id = ?, title = ?, subtitle = ?, size_bytes = ?, quality = ?," +
+      " status = 'unchecked', error_detail = NULL, duration_s = NULL, container = NULL, video_codec = NULL," +
+      " audio_codec = NULL, probe_json = NULL, checked_at = NULL, updated_at = ?" +
+      " WHERE id = ? AND source_id = ? AND kind = ? AND external_id = ?"
+  ).run(
+    entry.path,
+    entry.externalId,
+    entry.title,
+    entry.subtitle,
+    entry.sizeBytes,
+    entry.quality,
+    now,
+    row.id,
+    source.id,
+    kind,
+    row.externalId
+  );
+  return { found: true, changed: true };
 }

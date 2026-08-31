@@ -32,7 +32,12 @@ export default function DetailModal({ file, onClose }: { file: MediaFile; onClos
       toast.success("Re-check finished - " + (STATUS_META[r.status]?.label ?? r.status));
       invalidate();
     },
-    onError: (err: Error) => toast.error("Re-check failed: " + err.message)
+    onError: (err: Error) => {
+      toast.error("Re-check failed: " + err.message);
+      // A re-check syncs the item first; if the *arr dropped it, the row is
+      // gone - refresh the lists behind the modal so they stop showing it.
+      invalidate();
+    }
   });
 
   const purgeOne = useMutation({
@@ -84,7 +89,8 @@ export default function DetailModal({ file, onClose }: { file: MediaFile; onClos
       {f.path === null ? (
         <div className="mb-3 border border-neutral-300 px-3 py-2 text-xs text-neutral-600">
           No file at the *arr - this {f.kind === "movie" ? "movie" : "episode"} is monitored but has not been
-          downloaded yet. Sync again once it lands.
+          downloaded yet. "Re-check now" syncs it from the *arr first, so a download that just finished is
+          picked up immediately.
         </div>
       ) : (
         <video

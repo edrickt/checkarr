@@ -110,6 +110,19 @@ export default function Dashboard({
           (r.skipped ? ", " + r.skipped + " already gone" : "") +
           (r.errors.length ? ", " + r.errors.length + " failed" : "")
       );
+      // Every batch delete syncs the library first; say so, and what it brought in.
+      const syncParts = (data.synced ?? []).map(
+        (r) =>
+          r.name +
+          (r.ok
+            ? " synced (" +
+              "+" +
+              (r.added ?? 0) +
+              " new" +
+              ((r.relinked ?? 0) > 0 ? ", " + r.relinked + " relinked" : "") +
+              ")"
+            : " sync FAILED")
+      );
       const what = v.status === "all" ? "file(s)" : v.status + " file(s)";
       toast.success(
         "Deleted " +
@@ -117,6 +130,7 @@ export default function Dashboard({
           " " +
           what +
           " and queued searches for replacements." +
+          (syncParts.length ? "\nLibrary synced first - " + syncParts.join(" | ") : "") +
           (parts.length ? "\n" + parts.join(" | ") : "")
       );
       invalidateAll();
