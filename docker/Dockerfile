@@ -21,6 +21,10 @@ RUN apt-get update \
 WORKDIR /app
 ENV NODE_ENV=production
 ENV CHECKARR_DATA_DIR=/data
+# Bind every interface inside the container; docker-compose publishes the
+# port to host loopback only. The API is unauthenticated - keep it that way
+# unless you consciously want it on the LAN (and set CHECKARR_ALLOWED_HOSTS).
+ENV HOST=0.0.0.0
 COPY --from=build /app ./
 VOLUME /data
 EXPOSE 5656

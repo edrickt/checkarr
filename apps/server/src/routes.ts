@@ -65,7 +65,12 @@ function parseRange(range: string | undefined, size: number): RangeSpec {
     if (!allDigits(endStr)) return "invalid";
     const n = Number(endStr);
     if (!(n > 0)) return "invalid";
-    return { start: Math.max(0, size - n), end: size - 1 };
+    const start = Math.max(0, size - n);
+    // Same validity rule as the explicit-range branch: a 0-byte file (a
+    // truncated download) must answer 416, not hand createReadStream
+    // start=0, end=-1, which throws a 500.
+    if (start > size - 1 || start >= size) return "invalid";
+    return { start, end: size - 1 };
   }
   if (!allDigits(startStr)) return "invalid";
   const start = Number(startStr);
@@ -77,6 +82,10 @@ function parseRange(range: string | undefined, size: number): RangeSpec {
   const end = Math.min(Number(endStr), size - 1);
   if (start > end || start >= size) return "invalid";
   return { start, end };
+}
+
+function maskKey(key: string): string {
+  return key.length <= 4 ? "\u2022\u2022\u2022\u2022" : "\u2022\u2022\u2022\u2022" + key.slice(-4);
 }
 
 export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): void {
@@ -102,10 +111,17 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
   };
 
   // ---- settings ----
+  // Spawning ffmpeg -version on every settings read is process churn (the
+  // dashboard fetches this page state); cache the verdict per binary pair.
+  let binaryCheck: { key: string; problem: string | null; at: number } | null = null;
   app.get("/api/settings", async () => {
     const settings = getSettings(db);
     const binaries = resolveBinaries(settings);
-    const problem = await binariesUsable(binaries);
+    const key = binaries.ffmpeg + "\n" + binaries.ffprobe;
+    if (binaryCheck === null || binaryCheck.key !== key || Date.now() - binaryCheck.at > 60_000) {
+      binaryCheck = { key, problem: await binariesUsable(binaries), at: Date.now() };
+    }
+    const problem = binaryCheck.problem;
     return {
       settings,
       resolved: { ffmpeg: binaries.ffmpeg, ffprobe: binaries.ffprobe },
@@ -148,8 +164,12 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
         "SELECT id, type, name, base_url AS baseUrl, api_key AS apiKey, enabled," +
           " last_sync_at AS lastSyncAt, last_sync_error AS lastSyncError, created_at AS createdAt FROM sources ORDER BY id"
       )
-      .all();
-    return { sources: rows };
+      .all() as { apiKey: string; [key: string]: unknown }[];
+    // Keys are stealable through any read path; hand out a masked form and
+    // let PUT treat the masked value as "unchanged".
+    return {
+      sources: rows.map(({ apiKey, ...rest }) => ({ ...rest, apiKey: maskKey(String(apiKey ?? "")) }))
+    };
   });
 
   app.post("/api/sources", async (req) => {
@@ -179,8 +199,15 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
     }
     const apiKey = b.apiKey !== undefined ? String(b.apiKey).trim() : source.api_key;
     if (!apiKey) throw new ApiError(400, "apiKey is required");
-    const enabled = b.enabled !== undefined ? (b.enabled ? 1 : 0) : Number(source.enabled);
-    db.prepare("UPDATE sources SET name = ?, base_url = ?, api_key = ?, enabled = ? WHERE id = ?").run(name, baseUrl, apiKey, enabled, source.id);
+    // The list endpoint hands back a masked key; saving it back unchanged
+    // must keep the stored secret, not replace it with the mask.
+    const storedKey = apiKey === maskKey(source.api_key) ? source.api_key : apiKey;
+    let enabled: number;
+    if (b.enabled === undefined) enabled = Number(source.enabled);
+    else if (b.enabled === true || b.enabled === 1 || b.enabled === "true") enabled = 1;
+    else if (b.enabled === false || b.enabled === 0 || b.enabled === "false") enabled = 0;
+    else throw new ApiError(400, "enabled must be a boolean");
+    db.prepare("UPDATE sources SET name = ?, base_url = ?, api_key = ?, enabled = ? WHERE id = ?").run(name, baseUrl, storedKey, enabled, source.id);
     return { ok: true };
   });
 
@@ -246,6 +273,9 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
   // ---- scan ----
   app.post("/api/scan", async (req) => {
     const b = (req.body ?? {}) as Record<string, unknown>;
+    if (b.scope !== undefined && b.scope !== "unchecked" && b.scope !== "all") {
+      throw new ApiError(400, "scope must be 'unchecked' or 'all'");
+    }
     const scope = b.scope === "all" ? "all" : "unchecked";
     let sourceId: number | undefined;
     if (b.sourceId !== undefined && b.sourceId !== null) {
@@ -311,8 +341,10 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
       params.push(q.status);
     }
     if (q.sourceId) {
+      const sid = Number(q.sourceId);
+      if (!Number.isInteger(sid)) throw new ApiError(400, "sourceId must be an integer");
       where.push("mf.source_id = ?");
-      params.push(Number(q.sourceId));
+      params.push(sid);
     }
     if (q.q) {
       const needle = "%" + escapeLike(q.q) + "%";
@@ -344,6 +376,7 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
 
   app.get("/api/files/:id", async (req) => {
     const id = Number((req.params as { id: string }).id);
+    if (!Number.isInteger(id)) throw new ApiError(400, "invalid file id");
     const row = db
       .prepare(
         "SELECT mf.id, mf.source_id AS sourceId, s.type AS sourceType, s.name AS sourceName, mf.kind, mf.title, mf.subtitle," +
@@ -381,6 +414,7 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
   app.post("/api/files/:id/recheck", async (req) => {
     if (scans.isActive()) throw new ApiError(409, "A scan is running - wait for it to finish or cancel it");
     const id = Number((req.params as { id: string }).id);
+    if (!Number.isInteger(id)) throw new ApiError(400, "invalid file id");
     const file = db.prepare("SELECT id, path FROM media_files WHERE id = ?").get(id) as { id: number; path: string } | undefined;
     if (!file) throw new ApiError(404, "file not found");
     const settings = getSettings(db);
@@ -395,6 +429,7 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
   // Range-aware streaming for the manual in-browser player.
   app.get("/api/files/:id/stream", async (req, reply) => {
     const id = Number((req.params as { id: string }).id);
+    if (!Number.isInteger(id)) throw new ApiError(400, "invalid file id");
     const row = db.prepare("SELECT path FROM media_files WHERE id = ?").get(id) as { path: string } | undefined;
     if (!row) throw new ApiError(404, "file not found");
     const localPath = resolveLocalPath(row.path, getSettings(db).pathMappings);

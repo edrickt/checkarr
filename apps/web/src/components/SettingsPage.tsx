@@ -143,7 +143,7 @@ export default function SettingsPage() {
                     <input value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} placeholder="Name" className={INPUT + " max-w-xs"} />
                   </div>
                   <input value={editing.baseUrl} onChange={(e) => setEditing({ ...editing, baseUrl: e.target.value })} placeholder="http://localhost:7878" className={INPUT} />
-                  <input value={editing.apiKey} onChange={(e) => setEditing({ ...editing, apiKey: e.target.value })} placeholder="API key" className={INPUT} />
+                  <input value={editing.apiKey} onChange={(e) => setEditing({ ...editing, apiKey: e.target.value })} placeholder="API key" title="Saved key is masked - retype it to replace" className={INPUT} />
                   <div className="flex gap-2">
                     <button onClick={() => updateSource.mutate(editing)} disabled={updateSource.isPending} className={BTN}>
                       {updateSource.isPending ? "Saving..." : "Save"}
