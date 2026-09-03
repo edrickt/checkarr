@@ -80,6 +80,9 @@ Settings live in SQLite (data/checkarr.db, override the directory with CHECKARR_
 - **Path mappings** - ordered prefix rewrites from *arr paths to local paths
 - **Concurrent checks** - 1-32 parallel ffmpeg workers (default 8)
 - **ffmpeg/ffprobe path overrides** - use system binaries instead of the bundled ones
+- **Local broadcasting** - bind 0.0.0.0 instead of loopback so other devices on your network can
+  open the dashboard (no authentication - trusted networks only). Saves with the rest of the
+  settings and takes effect on "Restart server"; an explicit HOST environment variable overrides it.
 
 Environment: CHECKARR_PORT (default 5656; 6767 belongs to Bazarr), HOST (default 127.0.0.1), CHECKARR_DATA_DIR,
 CHECKARR_WEB_DIST, LOG_LEVEL.
@@ -114,7 +117,8 @@ CHECKARR_WEB_DIST, LOG_LEVEL.
   removes the row, a newly downloaded file is picked up right away, and a *arr outage fails
   the request instead of acting on stale data.
 - The server binds to 127.0.0.1 by default and has no authentication - don't expose it to the
-  internet as-is.
+  internet as-is. "Local broadcasting" in Settings opens it to the LAN; the API also answers
+  POST /api/restart, so anyone on the network can bounce the listener.
 - API keys sit in the local database as plaintext.
 - A scan checks every file independently; killing the server mid-scan leaves remaining files
   unchecked, and the next scan (scope "unchecked") picks them up.

@@ -1,9 +1,17 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import fastifyStatic from "@fastify/static";
 import fs from "node:fs";
-import { HOST, WEB_DIST } from "./config.js";
-import { registerApi } from "./routes.js";
+import {
+  applyLocalBroadcastSetting,
+  ENV_HOST,
+  getBindHost,
+  isBroadcastHost,
+  PORT,
+  WEB_DIST
+} from "./config.js";
+import { registerApi, type ServerControl } from "./routes.js";
 import { ScanManager } from "./services/scanner.js";
+import { getSettings } from "./settings.js";
 import type { DB } from "./db.js";
 
 // Hostnames the UI may be opened on. The 127.0.0.1 bind alone is not a
@@ -18,7 +26,6 @@ const ALLOWED_HOSTNAMES = new Set(
     .concat((process.env.CHECKARR_ALLOWED_HOSTS ?? "").split(",").map((s) => s.trim()))
     .filter((h) => h.length > 0)
 );
-const BIND_ALL = HOST === "0.0.0.0" || HOST === "::";
 
 function stripPort(host: string): string {
   if (host.startsWith("[")) {
@@ -32,16 +39,34 @@ function stripPort(host: string): string {
 
 function requestHostAllowed(header: string | undefined): boolean {
   if (header === undefined) return true; // HTTP/1.0-style clients
-  if (BIND_ALL) return true;
+  // The bind host is a live setting (local broadcast), so re-read it per
+  // request instead of freezing it at startup.
+  if (isBroadcastHost(getBindHost())) return true;
   return ALLOWED_HOSTNAMES.has(stripPort(header.toLowerCase()));
 }
 
 const MUTATING = new Set(["POST", "PUT", "DELETE", "PATCH"]);
 
-export async function buildApp(db: DB): Promise<FastifyInstance> {
-  const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" } });
-  const scans = new ScanManager(db);
-  registerApi(app, db, scans);
+async function createApp(db: DB, scans: ScanManager): Promise<FastifyInstance> {
+  // forceCloseConnections: closing for a restart must not hang on idle
+  // keep-alive browser sockets.
+  const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" }, forceCloseConnections: true });
+
+  const serverControl: ServerControl = {
+    bindHost: getBindHost,
+    restart: async () => {
+      // A closed Fastify instance cannot listen again, so build a fresh app
+      // and swap it in. The old listener is torn down first to free the
+      // port; the scan manager is shared so any running scan survives.
+      const fresh = await createApp(db, scans);
+      await app.close();
+      // Re-read the toggle at restart time: a save may have landed since
+      // startup, and this is the moment it takes effect.
+      const host = applyLocalBroadcastSetting(getSettings(db).localBroadcast);
+      await fresh.listen({ port: PORT, host });
+    }
+  };
+  registerApi(app, db, scans, serverControl);
 
   app.addHook("onRequest", async (req, reply) => {
     if (!requestHostAllowed(req.headers.host)) {
@@ -88,5 +113,12 @@ export async function buildApp(db: DB): Promise<FastifyInstance> {
   } else {
     app.log.warn("web dist not found at " + WEB_DIST + " - API only (run pnpm build or pnpm dev:web)");
   }
+  return app;
+}
+
+export async function buildApp(db: DB): Promise<FastifyInstance> {
+  const app = await createApp(db, new ScanManager(db));
+  // Warm the bind host from settings so the first listen matches the toggle.
+  applyLocalBroadcastSetting(getSettings(db).localBroadcast);
   return app;
 }

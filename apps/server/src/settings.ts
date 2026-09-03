@@ -12,6 +12,8 @@ export interface AppSettings {
   ffmpegPath: string | null;
   ffprobePath: string | null;
   pathMappings: PathMapping[];
+  /** Bind 0.0.0.0 so other devices on the LAN can open the UI (needs restart). */
+  localBroadcast: boolean;
 }
 
 interface SettingsRow {
@@ -19,11 +21,14 @@ interface SettingsRow {
   ffmpeg_path: string | null;
   ffprobe_path: string | null;
   path_mappings: string;
+  local_broadcast: number;
 }
 
 export function getSettings(db: DB): AppSettings {
   const row = db
-    .prepare("SELECT concurrency, ffmpeg_path, ffprobe_path, path_mappings FROM settings WHERE id = 1")
+    .prepare(
+      "SELECT concurrency, ffmpeg_path, ffprobe_path, path_mappings, local_broadcast FROM settings WHERE id = 1"
+    )
     .get() as unknown as SettingsRow;
   let mappings: PathMapping[] = [];
   try {
@@ -36,7 +41,8 @@ export function getSettings(db: DB): AppSettings {
     concurrency: Number(row.concurrency) || 8,
     ffmpegPath: row.ffmpeg_path || null,
     ffprobePath: row.ffprobe_path || null,
-    pathMappings: mappings
+    pathMappings: mappings,
+    localBroadcast: Number(row.local_broadcast) === 1
   };
 }
 
@@ -52,11 +58,18 @@ export function saveSettings(db: DB, patch: Partial<AppSettings>): AppSettings {
     concurrency: patch.concurrency ?? current.concurrency,
     ffmpegPath: patch.ffmpegPath !== undefined ? patch.ffmpegPath : current.ffmpegPath,
     ffprobePath: patch.ffprobePath !== undefined ? patch.ffprobePath : current.ffprobePath,
-    pathMappings: patch.pathMappings ?? current.pathMappings
+    pathMappings: patch.pathMappings ?? current.pathMappings,
+    localBroadcast: patch.localBroadcast ?? current.localBroadcast
   };
   db.prepare(
     "UPDATE settings SET concurrency = ?, ffmpeg_path = ?, ffprobe_path = ?, path_mappings = ?," +
-      " updated_at = datetime('now') WHERE id = 1"
-  ).run(next.concurrency, next.ffmpegPath, next.ffprobePath, JSON.stringify(next.pathMappings));
+      " local_broadcast = ?, updated_at = datetime('now') WHERE id = 1"
+  ).run(
+    next.concurrency,
+    next.ffmpegPath,
+    next.ffprobePath,
+    JSON.stringify(next.pathMappings),
+    next.localBroadcast ? 1 : 0
+  );
   return next;
 }

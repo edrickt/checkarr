@@ -10,7 +10,6 @@ import { useConfirm } from "../ui/ConfirmDialog";
 import { ErrorBanner } from "../ui/ErrorBanner";
 import { Toggle } from "../ui/Toggle";
 import { useToast } from "../ui/Toast";
-
 const EMPTY_FORM: SourceInput = { type: "radarr", name: "", baseUrl: "", apiKey: "" };
 
 const TYPE_CHIP =
@@ -29,6 +28,7 @@ export default function SettingsPage() {
   const [ffmpegPath, setFfmpegPath] = useState("");
   const [ffprobePath, setFfprobePath] = useState("");
   const [mappings, setMappings] = useState<PathMapping[]>([]);
+  const [localBroadcast, setLocalBroadcast] = useState(false);
   const [form, setForm] = useState<SourceInput>(EMPTY_FORM);
   const [editing, setEditing] = useState<Source | null>(null);
   const [testResults, setTestResults] = useState<Record<number, string>>({});
@@ -39,6 +39,7 @@ export default function SettingsPage() {
       setFfmpegPath(settings.data.settings.ffmpegPath ?? "");
       setFfprobePath(settings.data.settings.ffprobePath ?? "");
       setMappings(settings.data.settings.pathMappings.map((m) => ({ ...m })));
+      setLocalBroadcast(settings.data.settings.localBroadcast);
     }
   }, [settings.data]);
 
@@ -49,7 +50,8 @@ export default function SettingsPage() {
     (concurrency !== settings.data.settings.concurrency ||
       ffmpegPath !== (settings.data.settings.ffmpegPath ?? "") ||
       ffprobePath !== (settings.data.settings.ffprobePath ?? "") ||
-      JSON.stringify(mappings) !== JSON.stringify(settings.data.settings.pathMappings));
+      JSON.stringify(mappings) !== JSON.stringify(settings.data.settings.pathMappings) ||
+      localBroadcast !== settings.data.settings.localBroadcast);
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["settings"] });
@@ -62,14 +64,51 @@ export default function SettingsPage() {
         concurrency,
         ffmpegPath: ffmpegPath.trim() === "" ? null : ffmpegPath.trim(),
         ffprobePath: ffprobePath.trim() === "" ? null : ffprobePath.trim(),
-        pathMappings: mappings
+        pathMappings: mappings,
+        localBroadcast
       }),
     onSuccess: () => {
-      toast.success("Settings saved");
+      toast.success(localBroadcast ? "Settings saved - restart to apply local broadcasting" : "Settings saved");
       invalidate();
     },
     onError: (err: Error) => toast.error("Save failed: " + err.message)
   });
+
+  // The server answers the restart request before bouncing the listener, so
+  // poll the API until it comes back up (or give up after a grace period).
+  const restart = useMutation({
+    mutationFn: () => api.restartServer(),
+    onSuccess: async () => {
+      toast.success("Restarting the server...");
+      const deadline = Date.now() + 15_000;
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 1000));
+        try {
+          await api.settings();
+          break;
+        } catch {
+          if (Date.now() > deadline) {
+            toast.error("Server did not come back within 15s - check the server logs");
+            return;
+          }
+        }
+      }
+      toast.success("Server restarted");
+      invalidate();
+    },
+    onError: (err: Error) => toast.error("Restart failed: " + err.message)
+  });
+
+  const confirmRestart = async () => {
+    const ok = await confirm({
+      title: "Restart the server?",
+      body:
+        "The web UI goes down for a few seconds. Any saved local-broadcast change takes effect now; " +
+        "a running scan keeps going.",
+      confirmLabel: "Restart"
+    });
+    if (ok) restart.mutate();
+  };
 
   const addSource = useMutation({
     mutationFn: () => api.addSource(form),
@@ -394,6 +433,29 @@ export default function SettingsPage() {
             </label>
           </div>
 
+          <div className="mt-4 flex items-start justify-between gap-4 border border-neutral-200 p-3">
+            <div>
+              <div className="text-sm font-medium">Local broadcasting</div>
+              <div className="mt-0.5 text-xs text-neutral-400">
+                Listen on all network interfaces instead of localhost only, so other devices on your
+                network can open the dashboard. Note the API has no authentication - only enable this
+                on networks you trust. Takes effect after a restart.
+              </div>
+              {settings.data?.server.hostFromEnv && (
+                <div className="mt-1 text-xs text-amber-600">
+                  Overridden by the HOST environment variable - the toggle has no effect in this
+                  deployment.
+                </div>
+              )}
+            </div>
+            <Toggle
+              checked={localBroadcast}
+              onChange={setLocalBroadcast}
+              disabled={settings.isLoading || settings.isError}
+              label="Local broadcasting"
+            />
+          </div>
+
           <div className="mt-4">
             <div className="text-xs text-neutral-400">
               Path mappings - rewrites paths reported by Radarr/Sonarr (e.g. container paths) to paths
@@ -454,6 +516,30 @@ export default function SettingsPage() {
             {save.isPending ? "Saving..." : "Save changes"}
           </Button>
         </form>
+      </section>
+
+      <section>
+        <h2 className="mb-3 text-xs font-medium uppercase tracking-wide text-neutral-400">Server</h2>
+        {settings.data && (
+          <div className="text-xs text-neutral-400">
+            listening on{" "}
+            <span className="font-mono text-neutral-600">
+              {settings.data.server.host}:{settings.data.server.port}
+            </span>
+            {settings.data.server.broadcasting
+              ? " - reachable from other devices on your network"
+              : " - localhost only"}
+            {settings.data.server.hostFromEnv ? " (fixed by the HOST environment variable)" : ""}
+          </div>
+        )}
+        <div className="mt-3 flex items-center gap-3">
+          <Button onClick={() => void confirmRestart()} disabled={restart.isPending}>
+            {restart.isPending ? "Restarting..." : "Restart server"}
+          </Button>
+          <span className="text-xs text-neutral-400">
+            Applies the saved local-broadcast setting; the UI comes back after a few seconds.
+          </span>
+        </div>
       </section>
     </div>
   );

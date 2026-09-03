@@ -11,6 +11,7 @@ const SCHEMA: string[] = [
     " ffmpeg_path TEXT," +
     " ffprobe_path TEXT," +
     " path_mappings TEXT NOT NULL DEFAULT '[]'," +
+    " local_broadcast INTEGER NOT NULL DEFAULT 0," +
     " updated_at TEXT NOT NULL DEFAULT (datetime('now')))",
   "INSERT OR IGNORE INTO settings (id) VALUES (1)",
   "CREATE TABLE IF NOT EXISTS sources (" +
@@ -76,6 +77,12 @@ const SCHEMA: string[] = [
 
 export function migrate(db: DB): void {
   for (const stmt of SCHEMA) db.exec(stmt);
+  // Local broadcasting (bind 0.0.0.0 instead of loopback) is a per-install
+  // setting: older DBs need the column added (no-op if already there).
+  const settingsCols = db.prepare("PRAGMA table_info(settings)").all() as { name: string }[];
+  if (!settingsCols.some((c) => c.name === "local_broadcast")) {
+    db.exec("ALTER TABLE settings ADD COLUMN local_broadcast INTEGER NOT NULL DEFAULT 0");
+  }
   // Per-library scans: scan_runs.source_id ships in the CREATE TABLE above for
   // fresh installs; older DBs need the column added (no-op if already there).
   const cols = db.prepare("PRAGMA table_info(scan_runs)").all() as { name: string }[];

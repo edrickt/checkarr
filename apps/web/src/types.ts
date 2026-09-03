@@ -50,6 +50,14 @@ export interface Settings {
   ffmpegPath: string | null;
   ffprobePath: string | null;
   pathMappings: PathMapping[];
+  localBroadcast: boolean;
+}
+
+export interface ServerInfo {
+  port: number;
+  host: string;
+  broadcasting: boolean;
+  hostFromEnv: boolean;
 }
 
 export interface SettingsResponse {
@@ -57,6 +65,7 @@ export interface SettingsResponse {
   resolved: { ffmpeg: string; ffprobe: string };
   ffmpegAvailable: boolean;
   ffmpegError: string | null;
+  server: ServerInfo;
 }
 
 export interface ScanRun {

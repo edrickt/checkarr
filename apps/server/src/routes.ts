@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import fs from "node:fs";
+import { ENV_HOST, isBroadcastHost, PORT } from "./config.js";
 import { getSettings, saveSettings, type AppSettings, type PathMapping } from "./settings.js";
 import { binariesUsable, resolveBinaries } from "./services/ffmpeg.js";
 import { checkMediaFile, resolveLocalPath, type CheckOutcome } from "./services/checker.js";
@@ -95,7 +96,13 @@ function maskKey(key: string): string {
   return key.length <= 4 ? "\u2022\u2022\u2022\u2022" : "\u2022\u2022\u2022\u2022" + key.slice(-4);
 }
 
-export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): void {
+/** Lets the API report - and trigger - a restart of the HTTP listener. */
+export interface ServerControl {
+  bindHost(): string;
+  restart(): Promise<void>;
+}
+
+export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager, server: ServerControl): void {
   app.setErrorHandler((err, _req, reply) => {
     const e = err as Error;
     if (err instanceof ApiError) return reply.code(err.statusCode).send({ error: err.message });
@@ -245,11 +252,19 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
       binaryCheck = { key, problem: await binariesUsable(binaries), at: Date.now() };
     }
     const problem = binaryCheck.problem;
+    const host = server.bindHost();
     return {
       settings,
       resolved: { ffmpeg: binaries.ffmpeg, ffprobe: binaries.ffprobe },
       ffmpegAvailable: problem === null,
-      ffmpegError: problem
+      ffmpegError: problem,
+      server: {
+        port: PORT,
+        host,
+        broadcasting: isBroadcastHost(host),
+        // An explicit HOST env var (Docker) overrides the settings toggle.
+        hostFromEnv: ENV_HOST !== null
+      }
     };
   });
 
@@ -280,8 +295,40 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager): v
       }
       patch.pathMappings = mappings;
     }
+    if (body.localBroadcast !== undefined) {
+      if (typeof body.localBroadcast !== "boolean")
+        throw new ApiError(400, "localBroadcast must be a boolean");
+      if (ENV_HOST !== null && body.localBroadcast !== getSettings(db).localBroadcast) {
+        throw new ApiError(400, "localBroadcast is overridden by the HOST environment variable");
+      }
+      patch.localBroadcast = body.localBroadcast;
+    }
     const settings = saveSettings(db, patch);
     return { settings };
+  });
+
+  // ---- restart ----
+  let restarting = false;
+  app.post("/api/restart", async () => {
+    if (restarting) throw new ApiError(409, "a restart is already in progress");
+    restarting = true;
+    // Reply first, then bounce the listener once the response is out -
+    // closing immediately would race the client's own request. The restart
+    // re-reads the local-broadcast toggle, so a freshly saved setting takes
+    // effect here. Scans live in this process and keep running.
+    setTimeout(() => {
+      server
+        .restart()
+        .then(() => {
+          restarting = false;
+          app.log.info({ host: server.bindHost(), port: PORT }, "restarted listener");
+        })
+        .catch((err) => {
+          restarting = false;
+          app.log.error(err);
+        });
+    }, 250);
+    return { ok: true };
   });
 
   // ---- sources ----

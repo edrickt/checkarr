@@ -50,6 +50,7 @@ export interface SourceInput {
 export const api = {
   settings: () => get<SettingsResponse>("/api/settings"),
   saveSettings: (patch: Partial<Settings>) => send<{ settings: Settings }>("PUT", "/api/settings", patch),
+  restartServer: () => send<{ ok: boolean }>("POST", "/api/restart", {}),
   sources: () => get<{ sources: Source[] }>("/api/sources"),
   addSource: (s: SourceInput) => send<{ id: number }>("POST", "/api/sources", s),
   updateSource: (id: number, patch: Partial<SourceInput> & { enabled?: boolean }) =>
