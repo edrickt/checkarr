@@ -83,6 +83,9 @@ Settings live in SQLite (data/checkarr.db, override the directory with CHECKARR_
 - **Local broadcasting** - bind 0.0.0.0 instead of loopback so other devices on your network can
   open the dashboard (no authentication - trusted networks only). Saves with the rest of the
   settings and takes effect on "Restart server"; an explicit HOST environment variable overrides it.
+- **Re-search missing** - one click tells the *arr to search for every missing item in scope
+  (Radarr `MoviesSearch` / Sonarr `EpisodesSearch`); the library syncs first so the search list
+  reflects what the *arr currently reports.
 
 Environment: CHECKARR_PORT (default 5656; 6767 belongs to Bazarr), HOST (default 127.0.0.1), CHECKARR_DATA_DIR,
 CHECKARR_WEB_DIST, LOG_LEVEL.
@@ -102,6 +105,7 @@ CHECKARR_WEB_DIST, LOG_LEVEL.
     POST   /api/purge                     { status: corrupt|suspect|all, sourceId? } delete files at the *arr source(s) + search replacements (syncs the library first); deleted files move to the purged status
     POST   /api/files/:id/purge           delete one file at its *arr source + search replacement (syncs the item first)
     POST   /api/scan/cancel               stop the running scan
+    POST   /api/research                  queue searches at the *arr for every missing item (or { sourceId }); syncs the library first; 409 while a scan runs
     GET    /api/scan/current              progress of the active/last run
     GET    /api/files?status=&sourceId=&q=&page=&pageSize=&sort=title|status|size|checked&dir=asc|desc    library listing
     GET    /api/files/:id                 full detail incl. ffmpeg findings

@@ -152,6 +152,20 @@ export interface PurgeResponse {
   synced: BatchSyncSummary[];
 }
 
+export interface ResearchResponse {
+  results: {
+    sourceId: number;
+    name: string;
+    type: string;
+    searched: number;
+    skipped: number;
+    errors: string[];
+  }[];
+  total: number;
+  /** The library sync that ran before the re-search. */
+  synced: BatchSyncSummary[];
+}
+
 export interface FileQuery {
   status?: string | null;
   sourceId?: number | null;

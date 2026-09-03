@@ -14,6 +14,7 @@ import {
   type SyncResult
 } from "./services/sync.js";
 import { purgeFiles } from "./services/purge.js";
+import { researchMissing } from "./services/research.js";
 import { ApiError } from "./lib/api-error.js";
 import type { DB } from "./db.js";
 
@@ -462,6 +463,25 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager, se
     // reflect what the *arr reports now, not what the last manual sync saw.
     const synced = await syncSourcesForBatch(sourceId, "delete");
     const result = await purgeFiles(db, { status, sourceId });
+    return { ...result, synced };
+  });
+
+  // ---- research missing ----
+  // Queue interactive searches at the *arr for missing items (monitored, not
+  // downloaded). Non-destructive, but it still syncs first so 'missing'
+  // reflects what the *arr reports now: a freshly downloaded file must not
+  // be searched for, and a removed item must not be searched for either.
+  app.post("/api/research", async (req) => {
+    if (scans.isActive()) throw new ApiError(409, "A scan is running - wait for it to finish or cancel it");
+    const b = (req.body ?? {}) as Record<string, unknown>;
+    let sourceId: number | undefined;
+    if (b.sourceId !== undefined && b.sourceId !== null) {
+      sourceId = Number(b.sourceId);
+      if (!Number.isInteger(sourceId)) throw new ApiError(400, "sourceId must be an integer");
+      getSource(sourceId); // 404 when the source does not exist
+    }
+    const synced = await syncSourcesForBatch(sourceId, "re-search missing");
+    const result = await researchMissing(db, { sourceId });
     return { ...result, synced };
   });
 

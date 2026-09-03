@@ -138,6 +138,40 @@ export default function Dashboard({
     onError: (err: Error) => toast.error("Delete failed: " + err.message)
   });
 
+  const research = useMutation({
+    mutationFn: (sourceId: number | undefined) => api.researchMissing(sourceId),
+    onSuccess: (data) => {
+      const parts = data.results.map(
+        (r) =>
+          r.name +
+          ": " +
+          r.searched +
+          " search(es) queued at the *arr" +
+          (r.skipped ? ", " + r.skipped + " skipped" : "") +
+          (r.errors.length ? ", " + r.errors.length + " failed" : "")
+      );
+      const syncParts = (data.synced ?? []).map(
+        (r) =>
+          r.name +
+          (r.ok
+            ? " synced (" +
+              "+" +
+              (r.added ?? 0) +
+              " new" +
+              ((r.relinked ?? 0) > 0 ? ", " + r.relinked + " relinked" : "") +
+              ")"
+            : " sync FAILED")
+      );
+      toast.success(
+        "Queued searches for " + data.total + " missing item(s)." +
+          (syncParts.length ? "\nLibrary synced first - " + syncParts.join(" | ") : "") +
+          (parts.length ? "\n" + parts.join(" | ") : "")
+      );
+      invalidateAll();
+    },
+    onError: (err: Error) => toast.error("Re-search failed: " + err.message)
+  });
+
   const active = scan.data?.active ?? false;
   const run = scan.data?.run ?? null;
   const lastScan = stats.data?.lastScan ?? null;
@@ -333,6 +367,18 @@ export default function Dashboard({
               : "Delete files at " + scopeLabel + " and queue searches for replacements")
           }
         />
+        <Button
+          onClick={() => research.mutate(scopeId)}
+          disabled={research.isPending || active || (byStatus.missing ?? 0) === 0 || !hasSources}
+          title={
+            busyTitle ??
+            ((byStatus.missing ?? 0) === 0
+              ? "No missing items in this scope"
+              : "Tell " + scopeLabel + " to search for the missing item(s) now")
+          }
+        >
+          {research.isPending ? "Searching..." : "Re-search missing"}
+        </Button>
       </div>
 
       {run && run.id > 0 && (
