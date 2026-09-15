@@ -53,16 +53,29 @@ you should get 2 healthy, 1 corrupt (truncated), 1 suspect (middle damage), 1 mi
 ## Production build
 
     pnpm build
-    pnpm start             # serves the API and the built UI on http://127.0.0.1:5656
-
-Or run it in the background:
-
     pnpm start             # builds, kills any running instance, starts fresh, waits until healthy
     pnpm stop              # stops it again
 
-Both scripts are plain Node, so they work on macOS, Linux, and Windows (no WSL needed).
-The background server logs to data/server.log and writes its pid to data/checkarr.pid.
-CHECKARR_PORT/PORT are honored by both scripts. Foreground die-hards: pnpm -F @checkarr/server start.
+`pnpm start` detaches the server: it logs to data/server.log, writes its pid to data/checkarr.pid,
+and the terminal is free to close - no command prompt has to stay open. Both scripts are plain Node,
+so they work on macOS, Linux, and Windows (no WSL needed). CHECKARR_PORT/PORT are honored by both
+scripts. Foreground die-hards: pnpm -F @checkarr/server start.
+
+### Desktop icon
+
+`pnpm start` also installs an app-drawer icon for this checkout (a no-op once it is up to date):
+
+- **macOS** - `~/Applications/Checkarr.app`, visible in Launchpad, Spotlight and Applications
+- **Linux** - `~/.local/share/applications/checkarr.desktop` plus a hicolor icon
+- **Windows** - a Start-menu shortcut
+
+Double-clicking the icon starts the server if it is not already running (rebuilding only when the
+source is newer than the build output) and opens http://127.0.0.1:5656 in the default browser.
+Clicking it again while the server is up just opens the dashboard. Re-run `pnpm app:install` after
+moving the checkout or switching Node; `pnpm app:uninstall` removes the icon. Everything the icon
+does is logged to data/launcher.log (Finder-launched apps have no terminal).
+
+`CHECKARR_NO_DESKTOP_APP=1 pnpm start` skips the icon entirely - useful for scripts and CI.
 
 ## Docker
 
@@ -131,7 +144,7 @@ CHECKARR_WEB_DIST, LOG_LEVEL.
 
 ## Development
 
-    pnpm test              # vitest: unit + ffmpeg integration + sync tests
+    pnpm test              # vitest: scripts + unit + ffmpeg integration + sync tests
     pnpm -F @checkarr/server dev
     pnpm -F @checkarr/web dev
 
@@ -139,5 +152,6 @@ Layout:
 
     apps/server   Fastify API, SQLite (node:sqlite), scan engine (TypeScript)
     apps/web      React + Vite + Tailwind UI
+    scripts       start/stop/launch, the app-drawer icon installer, shared lib
     scripts/dev   sample media generator + stub Radarr/Sonarr for local testing
     docker        Dockerfile + compose file

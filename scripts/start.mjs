@@ -7,6 +7,7 @@ import { spawn, execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { ensureDesktopApp } from "./lib/desktop.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const port = Number(process.env.CHECKARR_PORT ?? process.env.PORT ?? 5656);
@@ -156,6 +157,19 @@ if (process.env.NO_BUILD !== "1") {
   }
 }
 
+// Keep the app-drawer icon in sync with this checkout (path, node, pnpm).
+// Best effort: a missing icon must never stop the server from starting.
+// Opt out with CHECKARR_NO_DESKTOP_APP=1.
+async function installDesktopApp() {
+  if (process.env.CHECKARR_NO_DESKTOP_APP === "1") return;
+  try {
+    const result = await ensureDesktopApp({ root });
+    console.log("desktop icon " + (result.updated ? "installed" : "ready") + ": " + result.target);
+  } catch (err) {
+    console.log("desktop icon not installed: " + (err instanceof Error ? err.message : err));
+  }
+}
+
 const entry = path.join(root, "apps", "server", "dist", "index.js");
 if (!fs.existsSync(entry)) {
   console.error("missing " + path.relative(root, entry) + " - run a build first (or drop NO_BUILD=1)");
@@ -181,6 +195,7 @@ for (let i = 0; i < 30; i++) {
     const res = await fetch("http://127.0.0.1:" + port + "/api/stats", { signal: AbortSignal.timeout(1500) });
     if (res.ok) {
       console.log("up: http://127.0.0.1:" + port);
+      await installDesktopApp();
       process.exit(0);
     }
   } catch {}
