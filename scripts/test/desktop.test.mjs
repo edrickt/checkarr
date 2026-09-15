@@ -30,6 +30,19 @@ function fakeRun(calls) {
   };
 }
 
+/** Like fakeRun, but also fakes the shortcut file PowerShell would create. */
+function fakeWindowsRun(calls) {
+  return (cmd, args) => {
+    calls.push([cmd, ...args]);
+    if (cmd !== "powershell") return;
+    const script = args[args.length - 1];
+    const match = script.match(/CreateShortcut\('([^']*)'\)/);
+    const lnk = match[1].replace(/''/g, "'");
+    fs.mkdirSync(path.dirname(lnk), { recursive: true });
+    fs.writeFileSync(lnk, "shortcut");
+  };
+}
+
 describe("ensureDesktopApp on macOS", () => {
   it("installs a Launchpad app bundle whose icon runs the launcher", async () => {
     const home = makeHome();
@@ -156,14 +169,22 @@ describe("ensureDesktopApp on Linux", () => {
 });
 
 describe("ensureDesktopApp on Windows", () => {
+  const windowsEnv = (home) => ({
+    APPDATA: path.join(home, "AppData", "Roaming"),
+    LOCALAPPDATA: path.join(home, "AppData", "Local")
+  });
+
   it("writes an .ico and creates a Start-menu shortcut", async () => {
     const home = makeHome();
-    const env = {
-      APPDATA: path.join(home, "AppData", "Roaming"),
-      LOCALAPPDATA: path.join(home, "AppData", "Local")
-    };
+    const env = windowsEnv(home);
     const calls = [];
-    const result = await ensureDesktopApp({ ...base, platform: "win32", home, env, run: fakeRun(calls) });
+    const result = await ensureDesktopApp({
+      ...base,
+      platform: "win32",
+      home,
+      env,
+      run: fakeWindowsRun(calls)
+    });
 
     const ico = path.join(env.LOCALAPPDATA, "Checkarr", "checkarr.ico");
     const lnk = path.join(env.APPDATA, "Microsoft", "Windows", "Start Menu", "Programs", "Checkarr.lnk");
@@ -178,11 +199,60 @@ describe("ensureDesktopApp on Windows", () => {
     expect(script).toContain("launch.mjs");
   });
 
+  it("does not recreate the shortcut when nothing changed", async () => {
+    const home = makeHome();
+    const options = { ...base, platform: "win32", home, env: windowsEnv(home) };
+    await ensureDesktopApp({ ...options, run: fakeWindowsRun([]) });
+
+    const calls = [];
+    const second = await ensureDesktopApp({ ...options, run: fakeWindowsRun(calls) });
+    expect(second.updated).toBe(false);
+    expect(calls).toEqual([]);
+  });
+
   it("rejects platforms it cannot draw an app icon for", async () => {
     const home = makeHome();
     await expect(
       ensureDesktopApp({ ...base, platform: "sunos", home, env: {}, run: fakeRun([]) })
     ).rejects.toThrow(/unsupported/i);
+  });
+});
+
+describe("ensureDesktopApp ownership", () => {
+  it("refuses to overwrite a Checkarr.app it did not create", async () => {
+    const home = makeHome();
+    const app = path.join(home, "Applications", "Checkarr.app");
+    const plist = path.join(app, "Contents", "Info.plist");
+    fs.mkdirSync(path.dirname(plist), { recursive: true });
+    fs.writeFileSync(plist, "<plist>someone else's app</plist>");
+
+    await expect(
+      ensureDesktopApp({ ...base, platform: "darwin", home, env: {}, run: fakeRun([]) })
+    ).rejects.toThrow(/refusing/i);
+    expect(fs.readFileSync(plist, "utf8")).toContain("someone else's app");
+  });
+
+  it("refuses to remove an app bundle it did not create", async () => {
+    const home = makeHome();
+    const app = path.join(home, "Applications", "Checkarr.app");
+    const plist = path.join(app, "Contents", "Info.plist");
+    fs.mkdirSync(path.dirname(plist), { recursive: true });
+    fs.writeFileSync(plist, "<plist>someone else's app</plist>");
+
+    await expect(removeDesktopApp({ platform: "darwin", home, env: {} })).rejects.toThrow(/refusing/i);
+    expect(fs.existsSync(plist)).toBe(true);
+  });
+
+  it("refuses to overwrite a Linux entry it did not create", async () => {
+    const home = makeHome();
+    const desktopFile = path.join(home, ".local", "share", "applications", "checkarr.desktop");
+    fs.mkdirSync(path.dirname(desktopFile), { recursive: true });
+    fs.writeFileSync(desktopFile, "[Desktop Entry]\nName=SomethingElse\nExec=/bin/true\n");
+
+    await expect(
+      ensureDesktopApp({ ...base, platform: "linux", home, env: {}, run: fakeRun([]) })
+    ).rejects.toThrow(/refusing/i);
+    expect(fs.readFileSync(desktopFile, "utf8")).toContain("SomethingElse");
   });
 });
 

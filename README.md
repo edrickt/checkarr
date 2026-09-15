@@ -65,7 +65,7 @@ scripts. Foreground die-hards: pnpm -F @checkarr/server start.
 
 `pnpm start` also installs an app-drawer icon for this checkout (a no-op once it is up to date):
 
-- **macOS** - `~/Applications/Checkarr.app`, visible in Launchpad, Spotlight and Applications
+- **macOS** - `~/Applications/Checkarr.app`, visible in Launchpad and Spotlight
 - **Linux** - `~/.local/share/applications/checkarr.desktop` plus a hicolor icon
 - **Windows** - a Start-menu shortcut
 

@@ -23,3 +23,24 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
+      # The desktop launcher is plain Node: exercise the Linux install path too.
+      - run: node scripts/desktop.mjs install
+      - run: test -f "$HOME/.local/share/applications/checkarr.desktop"
+      - run: test -f "$HOME/.local/share/icons/hicolor/256x256/apps/checkarr.png"
+
+  desktop-icon-macos:
+    # The main platform for the app-drawer icon; iconutil and Launch Services
+    # only exist on macOS, so this path needs its own runner.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node scripts/desktop.mjs install
+      - name: Verify the bundle and its .icns
+        run: |
+          test -x "$HOME/Applications/Checkarr.app/Contents/MacOS/Checkarr"
+          plutil -lint "$HOME/Applications/Checkarr.app/Contents/Info.plist"
+          iconutil -c iconset "$HOME/Applications/Checkarr.app/Contents/Resources/Checkarr.icns" -o "$RUNNER_TEMP/checkarr.iconset"
+          test "$(ls "$RUNNER_TEMP/checkarr.iconset" | wc -l | tr -d ' ')" = "10"

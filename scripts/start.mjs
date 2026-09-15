@@ -149,7 +149,7 @@ await killPortStrays();
 
 if (process.env.NO_BUILD !== "1") {
   console.log("building...");
-  const build = spawn("pnpm", ["build"], { stdio: "inherit", shell: true, cwd: root, windowsHide: true });
+  const build = spawn("pnpm build", { stdio: "inherit", shell: true, cwd: root, windowsHide: true });
   const code = await new Promise((resolve) => build.on("exit", resolve));
   if (code !== 0) {
     console.error("build failed - not starting");
@@ -166,7 +166,11 @@ async function installDesktopApp() {
     const result = await ensureDesktopApp({ root });
     console.log("desktop icon " + (result.updated ? "installed" : "ready") + ": " + result.target);
   } catch (err) {
-    console.log("desktop icon not installed: " + (err instanceof Error ? err.message : err));
+    console.log(
+      "warning: desktop icon not installed (" +
+        (err instanceof Error ? err.message : err) +
+        ') - retry with "pnpm app:install"'
+    );
   }
 }
 
