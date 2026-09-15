@@ -68,7 +68,9 @@ export default function SettingsPage() {
         localBroadcast
       }),
     onSuccess: () => {
-      toast.success(localBroadcast ? "Settings saved - restart to apply local broadcasting" : "Settings saved");
+      toast.success(
+        localBroadcast ? "Settings saved - restart to apply local broadcasting" : "Settings saved"
+      );
       invalidate();
     },
     onError: (err: Error) => toast.error("Save failed: " + err.message)
@@ -437,14 +439,13 @@ export default function SettingsPage() {
             <div>
               <div className="text-sm font-medium">Local broadcasting</div>
               <div className="mt-0.5 text-xs text-neutral-400">
-                Listen on all network interfaces instead of localhost only, so other devices on your
-                network can open the dashboard. Note the API has no authentication - only enable this
-                on networks you trust. Takes effect after a restart.
+                Listen on all network interfaces instead of localhost only, so other devices on your network
+                can open the dashboard. Note the API has no authentication - only enable this on networks you
+                trust. Takes effect after a restart.
               </div>
               {settings.data?.server.hostFromEnv && (
                 <div className="mt-1 text-xs text-amber-600">
-                  Overridden by the HOST environment variable - the toggle has no effect in this
-                  deployment.
+                  Overridden by the HOST environment variable - the toggle has no effect in this deployment.
                 </div>
               )}
             </div>

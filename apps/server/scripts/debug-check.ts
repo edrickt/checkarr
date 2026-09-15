@@ -5,7 +5,13 @@ import { binariesUsable, resolveBinaries, runBin } from "../src/services/ffmpeg.
 import { checkMediaFile } from "../src/services/checker.js";
 
 async function main(): Promise<void> {
-  const binaries = resolveBinaries({ concurrency: 1, ffmpegPath: null, ffprobePath: null, pathMappings: [], localBroadcast: false });
+  const binaries = resolveBinaries({
+    concurrency: 1,
+    ffmpegPath: null,
+    ffprobePath: null,
+    pathMappings: [],
+    localBroadcast: false
+  });
   const problem = await binariesUsable(binaries);
   console.log("binaries problem:", problem);
   if (problem) return;

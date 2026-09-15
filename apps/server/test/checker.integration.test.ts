@@ -30,7 +30,13 @@ describe.skipIf(!FF)("checker integration (real ffmpeg)", () => {
   let binaries: Binaries;
 
   beforeAll(async () => {
-    binaries = resolveBinaries({ concurrency: 1, ffmpegPath: null, ffprobePath: null, pathMappings: [], localBroadcast: false });
+    binaries = resolveBinaries({
+      concurrency: 1,
+      ffmpegPath: null,
+      ffprobePath: null,
+      pathMappings: [],
+      localBroadcast: false
+    });
     const problem = await binariesUsable(binaries);
     if (problem) throw new Error(problem);
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "checkarr-test-"));

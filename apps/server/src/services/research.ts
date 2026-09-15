@@ -95,9 +95,7 @@ export async function researchMissing(db: DB, filter: { sourceId?: number } = {}
       errors: []
     };
     const ids = [
-      ...new Set(
-        entries.map((e) => Number(e.external_id)).filter((n) => Number.isInteger(n) && n > 0)
-      )
+      ...new Set(entries.map((e) => Number(e.external_id)).filter((n) => Number.isInteger(n) && n > 0))
     ];
     result.skipped = entries.length - ids.length;
     // One failing source must not block the others - same rule as purge.

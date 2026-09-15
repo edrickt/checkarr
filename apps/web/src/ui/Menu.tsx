@@ -183,9 +183,7 @@ export function DropdownButton({
             aria-label={ariaLabel}
             onKeyDown={onMenuKeyDown}
             style={pos ? { top: pos.top, left: pos.left } : undefined}
-            className={
-              "fixed z-50 border border-neutral-200 bg-white py-1 shadow-lg " + menuClassName
-            }
+            className={"fixed z-50 border border-neutral-200 bg-white py-1 shadow-lg " + menuClassName}
           >
             {items.map((item, i) => (
               <button
@@ -207,7 +205,9 @@ export function DropdownButton({
                   {item.hint !== undefined && <span className="shrink-0 text-neutral-400">{item.hint}</span>}
                 </span>
                 {item.description && (
-                  <span className="mt-0.5 block text-xs font-normal text-neutral-400">{item.description}</span>
+                  <span className="mt-0.5 block text-xs font-normal text-neutral-400">
+                    {item.description}
+                  </span>
                 )}
               </button>
             ))}

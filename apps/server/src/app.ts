@@ -1,14 +1,7 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import fastifyStatic from "@fastify/static";
 import fs from "node:fs";
-import {
-  applyLocalBroadcastSetting,
-  ENV_HOST,
-  getBindHost,
-  isBroadcastHost,
-  PORT,
-  WEB_DIST
-} from "./config.js";
+import { applyLocalBroadcastSetting, getBindHost, isBroadcastHost, PORT, WEB_DIST } from "./config.js";
 import { registerApi, type ServerControl } from "./routes.js";
 import { ScanManager } from "./services/scanner.js";
 import { getSettings } from "./settings.js";

@@ -163,7 +163,9 @@ export default function Dashboard({
             : " sync FAILED")
       );
       toast.success(
-        "Queued searches for " + data.total + " missing item(s)." +
+        "Queued searches for " +
+          data.total +
+          " missing item(s)." +
           (syncParts.length ? "\nLibrary synced first - " + syncParts.join(" | ") : "") +
           (parts.length ? "\n" + parts.join(" | ") : "")
       );
