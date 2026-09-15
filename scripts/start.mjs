@@ -8,6 +8,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ensureDesktopApp } from "./lib/desktop.mjs";
+import { openBrowser } from "./lib/launcher.mjs";
+import { ensureTray } from "./lib/tray.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const port = Number(process.env.CHECKARR_PORT ?? process.env.PORT ?? 5656);
@@ -174,6 +176,28 @@ async function installDesktopApp() {
   }
 }
 
+// Put an icon in the menu bar / notification area for as long as the server
+// runs. Best effort, like the desktop icon: CHECKARR_NO_TRAY=1 opts out.
+async function installTray(url) {
+  if (process.env.CHECKARR_NO_TRAY === "1") return;
+  try {
+    const result = await ensureTray({ root, url });
+    if (result.started) {
+      console.log("tray icon ready: " + result.target);
+    } else if (result.reason === "already running") {
+      console.log("tray icon already running (pid " + result.pid + ")");
+    } else {
+      console.log("tray icon skipped: " + result.reason);
+    }
+  } catch (err) {
+    console.log(
+      "warning: tray icon not available (" +
+        (err instanceof Error ? err.message : err) +
+        ") - set CHECKARR_NO_TRAY=1 to silence"
+    );
+  }
+}
+
 const entry = path.join(root, "apps", "server", "dist", "index.js");
 if (!fs.existsSync(entry)) {
   console.error("missing " + path.relative(root, entry) + " - run a build first (or drop NO_BUILD=1)");
@@ -198,7 +222,12 @@ for (let i = 0; i < 30; i++) {
   try {
     const res = await fetch("http://127.0.0.1:" + port + "/api/stats", { signal: AbortSignal.timeout(1500) });
     if (res.ok) {
-      console.log("up: http://127.0.0.1:" + port);
+      const url = "http://127.0.0.1:" + port;
+      console.log("up: " + url);
+      // The app should feel launched, not just served: bring the dashboard up
+      // and park the tray icon. Neither depends on this terminal staying open.
+      if (process.env.CHECKARR_NO_OPEN !== "1") openBrowser(url);
+      await installTray(url);
       await installDesktopApp();
       process.exit(0);
     }

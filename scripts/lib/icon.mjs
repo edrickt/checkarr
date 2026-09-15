@@ -43,6 +43,45 @@ function sdSegment(px, py, ax, ay, bx, by) {
 }
 
 /**
+ * Render just the check mark as a non-premultiplied RGBA buffer (size *
+ * size), fitted to the canvas. Menu-bar / notification-area icons are tinted
+ * by the platform (macOS template images), so only the alpha channel counts
+ * and RGB stays black.
+ */
+export function renderGlyph(size, options = {}) {
+  const stroke = options.stroke ?? 0.12;
+  const margin = options.margin ?? 0.08;
+  const rgba = Buffer.alloc(size * size * 4);
+
+  // Fit the check mark's bounding box into the canvas, keeping its aspect.
+  const xs = CHECK_POINTS.map(([x]) => x);
+  const ys = CHECK_POINTS.map(([, y]) => y);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  const box = size * (1 - 2 * margin);
+  const scale = box / Math.max(maxX - minX, maxY - minY);
+  const offsetX = size / 2 - ((minX + maxX) / 2) * scale;
+  const offsetY = size / 2 - ((minY + maxY) / 2) * scale;
+  const [p0, p1, p2] = CHECK_POINTS.map(([x, y]) => [x * scale + offsetX, y * scale + offsetY]);
+  const radius = (stroke * size) / 2;
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const distance = Math.min(
+        sdSegment(x + 0.5, y + 0.5, p0[0], p0[1], p1[0], p1[1]),
+        sdSegment(x + 0.5, y + 0.5, p1[0], p1[1], p2[0], p2[1])
+      );
+      const alpha = Math.round(clamp(radius - distance + 0.5, 0, 1) * 255);
+      if (alpha === 0) continue;
+      rgba[(y * size + x) * 4 + 3] = alpha;
+    }
+  }
+  return rgba;
+}
+
+/**
  * Render the Checkarr mark as a non-premultiplied RGBA buffer (size * size).
  */
 export function renderIcon(size) {

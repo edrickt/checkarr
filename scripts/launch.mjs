@@ -92,7 +92,9 @@ function runStart(build) {
   const out = fs.openSync(logFile, "a");
   const child = spawn(process.execPath, [path.join(root, "scripts", "start.mjs")], {
     cwd: root,
-    env: { ...process.env, ...(build ? {} : { NO_BUILD: "1" }) },
+    // start.mjs must not open a second dashboard tab: this process opens it
+    // once the server answers (below), which is what a click means.
+    env: { ...process.env, ...(build ? {} : { NO_BUILD: "1" }), CHECKARR_NO_OPEN: "1" },
     stdio: ["ignore", out, out],
     windowsHide: true
   });

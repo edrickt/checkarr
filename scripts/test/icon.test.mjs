@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { inflateSync, crc32 } from "node:zlib";
-import { downsample, encodeIco, encodePng, renderIcon } from "../lib/icon.mjs";
+import { downsample, encodeIco, encodePng, renderGlyph, renderIcon } from "../lib/icon.mjs";
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
@@ -66,6 +66,29 @@ describe("renderIcon", () => {
     // ...and the badge behind it is not white (the glyph is what we sampled).
     const [br, bg, bb] = pixelAt(rgba, size, 12, 12);
     expect(Math.max(br, bg, bb) - Math.min(br, bg, bb)).toBeGreaterThan(20);
+  });
+});
+
+describe("renderGlyph", () => {
+  const size = 64;
+
+  it("paints the check mark in black with the rest transparent", () => {
+    const rgba = renderGlyph(size);
+    expect(rgba).toHaveLength(size * size * 4);
+    // Corners are empty; the low point of the check (0.44, 0.70) is solid.
+    expect(pixelAt(rgba, size, 0, 0)[3]).toBe(0);
+    expect(pixelAt(rgba, size, size - 1, size - 1)[3]).toBe(0);
+    const low = pixelAt(rgba, size, 25, 51);
+    expect(low[3]).toBe(255);
+    expect(low.slice(0, 3)).toEqual([0, 0, 0]);
+    // ...and so is the top of the tick (0.74, 0.36).
+    expect(pixelAt(rgba, size, 59, 13)[3]).toBe(255);
+  });
+
+  it("leaves the middle of the canvas empty, above the crossbar", () => {
+    const rgba = renderGlyph(size);
+    // (32, 26) sits inside the check's notch, which stays transparent.
+    expect(pixelAt(rgba, size, 32, 26)[3]).toBe(0);
   });
 });
 

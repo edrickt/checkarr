@@ -57,7 +57,8 @@ you should get 2 healthy, 1 corrupt (truncated), 1 suspect (middle damage), 1 mi
     pnpm stop              # stops it again
 
 `pnpm start` detaches the server: it logs to data/server.log, writes its pid to data/checkarr.pid,
-and the terminal is free to close - no command prompt has to stay open. Both scripts are plain Node,
+and the terminal is free to close - no command prompt has to stay open. It also opens the dashboard
+and parks a tray icon for as long as the server runs (see below). Both scripts are plain Node,
 so they work on macOS, Linux, and Windows (no WSL needed). CHECKARR_PORT/PORT are honored by both
 scripts. Foreground die-hards: pnpm -F @checkarr/server start.
 
@@ -76,6 +77,24 @@ moving the checkout or switching Node; `pnpm app:uninstall` removes the icon. Ev
 does is logged to data/launcher.log (Finder-launched apps have no terminal).
 
 `CHECKARR_NO_DESKTOP_APP=1 pnpm start` skips the icon entirely - useful for scripts and CI.
+
+### Tray icon
+
+`pnpm start` also puts an icon where the platform keeps running apps, while the server runs:
+
+- **macOS** - the menu bar (a template check mark, tinted by the system)
+- **Windows** - the notification area, behind the `^` chevron on Windows 11
+- **Linux** - a `yad --notification` item, when [yad](https://github.com/v1cont/yad) is installed;
+  without yad the icon is skipped and start says so
+
+Clicking it opens a menu with **Open Checkarr** (starts the server again first if it stopped),
+**Open log**, and **Stop Checkarr** (stops the server and removes the icon). The icon is a separate
+detached process, so it survives closing the terminal and a server crash - `pnpm stop` is what takes
+it down. `pnpm start` again reuses a running icon instead of stacking a second one, and everything
+it does lands in data/tray.log.
+
+`CHECKARR_NO_TRAY=1` (icon only) or `CHECKARR_NO_OPEN=1` (dashboard only) tune the start behavior;
+`pnpm stop` leaves the icon alone when `CHECKARR_NO_TRAY=1` is set.
 
 ## Docker
 
@@ -152,6 +171,6 @@ Layout:
 
     apps/server   Fastify API, SQLite (node:sqlite), scan engine (TypeScript)
     apps/web      React + Vite + Tailwind UI
-    scripts       start/stop/launch, the app-drawer icon installer, shared lib
+    scripts       start/stop/launch, the desktop + tray icons, shared lib
     scripts/dev   sample media generator + stub Radarr/Sonarr for local testing
     docker        Dockerfile + compose file

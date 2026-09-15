@@ -5,6 +5,7 @@ import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { stopTray } from "./lib/tray.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const port = Number(process.env.CHECKARR_PORT ?? process.env.PORT ?? 5656);
@@ -119,5 +120,16 @@ try {
     stopped = 1;
   }
 } catch {}
+
+// The tray icon is part of "running", so it goes too (CHECKARR_NO_TRAY=1
+// keeps it around for a permanent menu-bar presence).
+if (process.env.CHECKARR_NO_TRAY !== "1") {
+  try {
+    const tray = await stopTray({ root });
+    if (tray.stopped) console.log("stopped tray icon (pid " + tray.pid + ")");
+  } catch (err) {
+    console.log("warning: could not stop the tray icon (" + (err instanceof Error ? err.message : err) + ")");
+  }
+}
 
 console.log(stopped ? "stopped" : "nothing running on port " + port);
