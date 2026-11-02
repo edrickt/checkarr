@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/icon.png" width="128" alt="Checkarr app icon">
+</p>
+
 # Checkarr
 
 A locally hosted media integrity checker for Radarr and Sonarr libraries — it actually plays every file and flags the ones that don't.
