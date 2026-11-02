@@ -4,19 +4,19 @@
 
 # Checkarr
 
-A locally hosted media integrity checker for Radarr and Sonarr libraries — it actually plays every file and flags the ones that don't.
+A locally hosted media integrity checker for Radarr and Sonarr libraries. It actually plays every file and flags the ones that don't.
 
 **1.0.0 · Node 23.4+ · Radarr + Sonarr · MIT**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE) ![Node 23.4+](https://img.shields.io/badge/Node-23.4%2B-blue) ![pnpm 11](https://img.shields.io/badge/pnpm-11-orange)
 
-<!-- Screenshot: docs/assets/screenshot-dashboard.png — capture pending -->
+<!-- Screenshot: docs/assets/screenshot-dashboard.png, capture pending -->
 
 - [Features](#features) · [How it works](#how-it-works) · [Try it in 30 seconds](#try-it-in-30-seconds) · [Install](#install) · [Configuration](#configuration) · [API](#api) · [For developers](#for-developers) · [Security](#security) · [Licensing](#licensing)
 
 ## Features
 
-- **Really plays your media.** Every file is decoded with ffmpeg — start, middle, and end — not just stat'ed.
+- **Really plays your media.** Every file is decoded with ffmpeg at the start, middle, and end, not just stat'ed.
 - **The \*arr is the source of truth.** Every monitored movie/episode gets a row, downloaded or not. Not-yet-downloaded items show as missing instead of being invisible.
 - **See why it failed.** Per-file ffmpeg findings show exactly what the decoder reported.
 - **Fix it in one click.** Delete & re-search (single file or bulk) and Re-search missing queue replacements at the \*arr.
@@ -32,9 +32,9 @@ A locally hosted media integrity checker for Radarr and Sonarr libraries — it 
 
 Browsers can only decode a handful of codecs, so ffmpeg is the "player":
 
-- **Start check** — decode the first second of every stream ("open it and play it")
-- **Middle check** — input-seek to 50% of duration and decode a second ("does it keep playing?")
-- **End check** — input-seek to 99% of duration and decode a second ("does it finish?")
+- **Start check.** Decode the first second of every stream ("open it and play it")
+- **Middle check.** Input-seek to 50% of duration and decode a second ("does it keep playing?")
+- **End check.** Input-seek to 99% of duration and decode a second ("does it finish?")
 
 ### Verdicts
 
@@ -43,7 +43,7 @@ Browsers can only decode a handful of codecs, so ffmpeg is the "player":
 | `healthy`     | Probe + all decode checks clean                                                                                          |
 | `corrupt`     | Container unparseable or a decode check failed                                                                           |
 | `suspect`     | Recoverable decode errors, unknown duration, or a timeout                                                                |
-| `missing`     | The \*arr references a file that no longer exists — or a monitored item with no file yet (not downloaded)                |
+| `missing`     | The \*arr references a file that no longer exists, or a monitored item with no file yet (not downloaded)                |
 | `unreachable` | The file exists but is not readable (permissions)                                                                        |
 | `purged`      | Deleted at the \*arr via Delete & re-search and waiting for its replacement; stays purged (never missing) until it lands |
 | `unchecked`   | Synced but not checked yet                                                                                               |
@@ -52,7 +52,7 @@ Files with no known duration never come back `healthy`: the middle and end check
 
 ## Try it in 30 seconds
 
-No real \*arr instance needed — use the stub sources and sample media:
+No real \*arr instance needed. Use the stub sources and sample media:
 
 ```bash
 pnpm install
@@ -79,7 +79,7 @@ pnpm dev:server        # API + UI on http://127.0.0.1:5656
 pnpm dev:web           # optional: Vite dev server with HMR on http://localhost:5173
 ```
 
-Open http://127.0.0.1:5656, go to Settings, add your Radarr/Sonarr instance (URL + API key — find it under Settings > General in the \*arr web UI), test it, then hit **Sync libraries** and start a scan.
+Open http://127.0.0.1:5656, go to Settings, add your Radarr/Sonarr instance (URL + API key. Find it under Settings > General in the \*arr web UI), test it, then hit **Sync libraries** and start a scan.
 
 ### Production build
 
@@ -97,23 +97,23 @@ pnpm stop              # stops it again
 
 `pnpm start` also installs an app-drawer icon for this checkout (a no-op once up to date):
 
-- **macOS** — `~/Applications/Checkarr.app`, visible in Launchpad and Spotlight
-- **Linux** — `~/.local/share/applications/checkarr.desktop` plus a hicolor icon
-- **Windows** — a Start-menu shortcut
+- **macOS.** `~/Applications/Checkarr.app`, visible in Launchpad and Spotlight
+- **Linux.** `~/.local/share/applications/checkarr.desktop` plus a hicolor icon
+- **Windows.** A Start-menu shortcut
 
 Double-clicking the icon starts the server if it is not running (rebuilding only when source is newer than build output) and opens http://127.0.0.1:5656. Clicking it again while the server is up just opens the dashboard. Re-run `pnpm app:install` after moving the checkout or switching Node; `pnpm app:uninstall` removes the icon. Everything the icon does is logged to `data/launcher.log` (Finder-launched apps have no terminal).
 
-`CHECKARR_NO_DESKTOP_APP=1 pnpm start` skips the icon entirely — useful for scripts and CI.
+`CHECKARR_NO_DESKTOP_APP=1 pnpm start` skips the icon entirely. It is useful for scripts and CI.
 
 ### Tray icon
 
 `pnpm start` also puts an icon where the platform keeps running apps, while the server runs:
 
-- **macOS** — the menu bar (a template check mark, tinted by the system)
-- **Windows** — the notification area, behind the `^` chevron on Windows 11
-- **Linux** — a `yad --notification` item, when [yad](https://github.com/v1cont/yad) is installed; without yad the icon is skipped and start says so
+- **macOS.** The menu bar (a template check mark, tinted by the system)
+- **Windows.** The notification area, behind the `^` chevron on Windows 11
+- **Linux.** A `yad --notification` item, when [yad](https://github.com/v1cont/yad) is installed. Without yad the icon is skipped and start says so
 
-Clicking it opens **Open Checkarr** (restarts the server first if it stopped), **Open log**, and **Stop Checkarr** (stops the server and removes the icon). The icon is a separate detached process, so it survives closing the terminal and a server crash — `pnpm stop` is what takes it down. `pnpm start` reuses a running icon instead of stacking a second one, and everything it does lands in `data/tray.log`.
+Clicking it opens **Open Checkarr** (restarts the server first if it stopped), **Open log**, and **Stop Checkarr** (stops the server and removes the icon). The icon is a separate detached process, so it survives closing the terminal and a server crash. `pnpm stop` is what takes it down. `pnpm start` reuses a running icon instead of stacking a second one, and everything it does lands in `data/tray.log`.
 
 ### Docker
 
@@ -135,12 +135,12 @@ The image uses system ffmpeg (no bundled download) and stores data in the `check
 
 Settings live in SQLite (`data/checkarr.db`, override the directory with `CHECKARR_DATA_DIR`):
 
-- **Sources** — Radarr/Sonarr base URL + API key
-- **Path mappings** — ordered prefix rewrites from \*arr paths to local paths
-- **Concurrent checks** — 1–32 parallel ffmpeg workers (default 8)
-- **ffmpeg/ffprobe path overrides** — use system binaries instead of the bundled ones
-- **Local broadcasting** — bind `0.0.0.0` instead of loopback so other devices on your network can open the dashboard (no authentication — trusted networks only). Saves with the rest of the settings and takes effect on "Restart server"; an explicit `HOST` environment variable overrides it.
-- **Re-search missing** — one click tells the \*arr to search for every missing item in scope (Radarr `MoviesSearch` / Sonarr `EpisodesSearch`); the library syncs first so the search list reflects what the \*arr currently reports.
+- **Sources.** Radarr/Sonarr base URL + API key
+- **Path mappings.** Ordered prefix rewrites from \*arr paths to local paths
+- **Concurrent checks.** 1–32 parallel ffmpeg workers (default 8)
+- **ffmpeg/ffprobe path overrides.** Use system binaries instead of the bundled ones
+- **Local broadcasting.** Bind `0.0.0.0` instead of loopback so other devices on your network can open the dashboard (no authentication, trusted networks only). Saves with the rest of the settings and takes effect on "Restart server". An explicit `HOST` environment variable overrides it.
+- **Re-search missing.** One click tells the \*arr to search for every missing item in scope (Radarr `MoviesSearch` / Sonarr `EpisodesSearch`). The library syncs first so the search list reflects what the \*arr currently reports.
 
 Environment: `CHECKARR_PORT` (default 5656; 6767 belongs to Bazarr), `HOST` (default 127.0.0.1), `CHECKARR_DATA_DIR`, `CHECKARR_WEB_DIST`, `LOG_LEVEL`.
 
@@ -193,7 +193,7 @@ docker        Dockerfile + compose file
 
 ## Security
 
-- The server binds to `127.0.0.1` by default and has **no authentication** — don't expose it to the internet as-is. "Local broadcasting" opens it to the LAN; the API also answers `POST /api/restart`, so anyone on the network can bounce the listener.
+- The server binds to `127.0.0.1` by default and has **no authentication**. Do not expose it to the internet as-is. "Local broadcasting" opens it to the LAN. The API also answers `POST /api/restart`, so anyone on the network can bounce the listener.
 - API keys sit in the local database as plaintext.
 - Checkarr never modifies Radarr/Sonarr library metadata except through explicit actions: per-file and bulk Delete & re-search, and Re-search missing.
 - Every operation that touches the library syncs first: per-file operations (Re-check now, per-file Delete & re-search) sync that one item, and batch operations (scan, bulk delete) run the same library sync as the "Sync libraries" button. A 404 at the \*arr removes the row, a newly downloaded file is picked up right away, and a \*arr outage fails the request instead of acting on stale data.
