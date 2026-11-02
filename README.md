@@ -12,7 +12,7 @@ A locally hosted media integrity checker for Radarr and Sonarr libraries. It act
 
 <!-- Screenshot: docs/assets/screenshot-dashboard.png, capture pending -->
 
-- [Features](#features) · [How it works](#how-it-works) · [Try it in 30 seconds](#try-it-in-30-seconds) · [Install](#install) · [Configuration](#configuration) · [API](#api) · [For developers](#for-developers) · [Security](#security) · [Licensing](#licensing)
+- [Features](#features) · [How it works](#how-it-works) · [Try it in 30 seconds](#try-it-in-30-seconds) · [Install](#install) · [Configuration](#configuration) · [API](#api) · [For developers](#for-developers) · [Security](#security) · [License](#license)
 
 ## Features
 
@@ -199,6 +199,6 @@ docker        Dockerfile + compose file
 - Every operation that touches the library syncs first: per-file operations (Re-check now, per-file Delete & re-search) sync that one item, and batch operations (scan, bulk delete) run the same library sync as the "Sync libraries" button. A 404 at the \*arr removes the row, a newly downloaded file is picked up right away, and a \*arr outage fails the request instead of acting on stale data.
 - A scan checks every file independently; killing the server mid-scan leaves remaining files unchecked, and the next scan (scope `unchecked`) picks them up.
 
-## Licensing
+## License
 
 Checkarr is MIT-licensed. See [`LICENSE`](LICENSE).
