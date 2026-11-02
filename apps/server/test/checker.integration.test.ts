@@ -28,6 +28,10 @@ async function encode(args: string[]): Promise<void> {
 describe.skipIf(!FF)("checker integration (real ffmpeg)", () => {
   let dir: string;
   let binaries: Binaries;
+  // Static ffmpeg/ffprobe builds can be unrunnable on a host (missing
+  // Rosetta, bad CPU type, no exec permission): record the reason and skip
+  // each test, so unit runs stay green where real decoding is impossible.
+  let skipReason: string | null = null;
 
   beforeAll(async () => {
     binaries = resolveBinaries({
@@ -38,7 +42,10 @@ describe.skipIf(!FF)("checker integration (real ffmpeg)", () => {
       localBroadcast: false
     });
     const problem = await binariesUsable(binaries);
-    if (problem) throw new Error(problem);
+    if (problem) {
+      skipReason = problem;
+      return;
+    }
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "checkarr-test-"));
 
     const base = ["-nostdin", "-hide_banner", "-loglevel", "error"];
@@ -85,37 +92,43 @@ describe.skipIf(!FF)("checker integration (real ffmpeg)", () => {
     fs.writeFileSync(tailPath, tbuf);
   }, 240_000);
 
-  it("marks a healthy file healthy", async () => {
+  it("marks a healthy file healthy", async (ctx) => {
+    if (skipReason) ctx.skip(skipReason);
     const r = await checkMediaFile(path.join(dir, "healthy.mp4"), { binaries, mappings: [] });
     expect(r.status).toBe("healthy");
     expect(r.detail).toBeNull();
     expect(r.probe?.durationS ?? 0).toBeGreaterThan(3);
   });
 
-  it("marks a truncated file corrupt", async () => {
+  it("marks a truncated file corrupt", async (ctx) => {
+    if (skipReason) ctx.skip(skipReason);
     const r = await checkMediaFile(path.join(dir, "truncated.mp4"), { binaries, mappings: [] });
     expect(r.status).toBe("corrupt");
     expect(r.detail).toBeTruthy();
   });
 
-  it("catches damage in the middle via the middle check", async () => {
+  it("catches damage in the middle via the middle check", async (ctx) => {
+    if (skipReason) ctx.skip(skipReason);
     const r = await checkMediaFile(path.join(dir, "middle-damage.mp4"), { binaries, mappings: [] });
     expect(["corrupt", "suspect"]).toContain(r.status);
     expect(r.detail).toBeTruthy();
   });
 
-  it("catches damage near the end via the end check", async () => {
+  it("catches damage near the end via the end check", async (ctx) => {
+    if (skipReason) ctx.skip(skipReason);
     const r = await checkMediaFile(path.join(dir, "tail-damage.mp4"), { binaries, mappings: [] });
     expect(["corrupt", "suspect"]).toContain(r.status);
     expect(r.detail).toContain("end (from");
   });
 
-  it("reports missing files as missing", async () => {
+  it("reports missing files as missing", async (ctx) => {
+    if (skipReason) ctx.skip(skipReason);
     const r = await checkMediaFile(path.join(dir, "does-not-exist.mp4"), { binaries, mappings: [] });
     expect(r.status).toBe("missing");
   });
 
-  it("applies path mappings before checking", async () => {
+  it("applies path mappings before checking", async (ctx) => {
+    if (skipReason) ctx.skip(skipReason);
     const r = await checkMediaFile("/remote/movies/healthy.mp4", {
       binaries,
       mappings: [{ match: "/remote/movies", replace: dir }]
@@ -123,14 +136,16 @@ describe.skipIf(!FF)("checker integration (real ffmpeg)", () => {
     expect(r.status).toBe("healthy");
   });
 
-  it("healthy decodes emit progress evidence (guards the no-decode rule)", async () => {
+  it("healthy decodes emit progress evidence (guards the no-decode rule)", async (ctx) => {
+    if (skipReason) ctx.skip(skipReason);
     const args = decodeArgs(path.join(dir, "healthy.mp4"), { seconds: 10, threads: 1 });
     const r = await runBin(binaries.ffmpeg, args, 90_000);
     expect(r.code).toBe(0);
     expect(progressShowsDecoding(r.stdout)).toBe(true);
   });
 
-  it("a seek past EOF decodes nothing and must not read as a clean pass", async () => {
+  it("a seek past EOF decodes nothing and must not read as a clean pass", async (ctx) => {
+    if (skipReason) ctx.skip(skipReason);
     const args = decodeArgs(path.join(dir, "healthy.mp4"), { seconds: 10, seekS: 60 });
     const r = await runBin(binaries.ffmpeg, args, 90_000);
     expect(r.code).toBe(0);

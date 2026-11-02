@@ -69,10 +69,10 @@ export async function researchMissing(db: DB, filter: { sourceId?: number } = {}
     "SELECT mf.id, mf.external_id, s.id AS source_id, s.type, s.name, s.base_url, s.api_key" +
     " FROM media_files mf JOIN sources s ON s.id = mf.source_id" +
     " WHERE s.enabled = 1 AND mf.status = 'missing'";
-  const params: string[] = [];
+  const params: (string | number)[] = [];
   if (filter.sourceId !== undefined) {
     sql += " AND mf.source_id = ?";
-    params.push(String(filter.sourceId));
+    params.push(filter.sourceId);
   }
   sql += " ORDER BY s.id, mf.id";
   const rows = db.prepare(sql).all(...params) as unknown as MissingRow[];

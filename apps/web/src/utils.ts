@@ -12,8 +12,10 @@ export function formatBytes(n: number | null): string {
 
 export function formatDuration(s: number | null): string {
   if (s === null || !isFinite(s)) return "-";
-  const totalMin = Math.floor(s / 60);
-  const sec = Math.round(s % 60);
+  // Round the total first so 59.5s becomes 1m 00s, never 0m 60s.
+  const totalSec = Math.round(s);
+  const totalMin = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
   if (totalMin >= 60) {
     const h = Math.floor(totalMin / 60);
     return h + "h " + (totalMin % 60) + "m";

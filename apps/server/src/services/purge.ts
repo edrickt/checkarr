@@ -226,18 +226,18 @@ export async function purgeFiles(db: DB, filter: PurgeFilter = {}): Promise<Purg
     "SELECT mf.id, mf.external_id, mf.path, s.id AS source_id, s.type, s.name, s.base_url, s.api_key" +
     " FROM media_files mf JOIN sources s ON s.id = mf.source_id" +
     " WHERE s.enabled = 1";
-  const params: string[] = [];
+  const params: (string | number)[] = [];
   if (filter.status !== undefined && filter.status !== "all") {
     sql += " AND mf.status = ?";
     params.push(filter.status);
   }
   if (filter.fileId !== undefined) {
     sql += " AND mf.id = ?";
-    params.push(String(filter.fileId));
+    params.push(filter.fileId);
   }
   if (filter.sourceId !== undefined) {
     sql += " AND mf.source_id = ?";
-    params.push(String(filter.sourceId));
+    params.push(filter.sourceId);
   }
   sql += " ORDER BY s.id, mf.id";
   const rows = db.prepare(sql).all(...params) as unknown as PurgeRow[];

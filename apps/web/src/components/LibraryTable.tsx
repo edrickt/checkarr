@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
 import type { MediaFile } from "../types";
@@ -41,13 +41,17 @@ export default function LibraryTable({
   const [qInput, setQInput] = useState(query.q);
 
   // Debounce the search box, and follow external query changes (a dashboard
-  // status card deep link resets the search to "").
+  // status card deep link resets the search to ""). The callback lives in a
+  // ref so scan polling re-renders (which recreate the inline onQueryChange
+  // in App) do not reset the 300ms timer mid-keystroke.
+  const onQueryChangeRef = useRef(onQueryChange);
+  onQueryChangeRef.current = onQueryChange;
   useEffect(() => {
     const t = setTimeout(() => {
-      if (qInput !== query.q) onQueryChange({ q: qInput, page: 1 });
+      if (qInput !== query.q) onQueryChangeRef.current({ q: qInput, page: 1 });
     }, 300);
     return () => clearTimeout(t);
-  }, [qInput, query.q, onQueryChange]);
+  }, [qInput, query.q]);
   useEffect(() => setQInput(query.q), [query.q]);
 
   const sources = useSources();
@@ -114,8 +118,8 @@ export default function LibraryTable({
   useEffect(() => {
     // Deleting the last row of the last page leaves the page pointer past
     // the end: clamp instead of showing a permanently empty table.
-    if (query.page > pageCount) onQueryChange({ page: pageCount });
-  }, [query.page, pageCount, onQueryChange]);
+    if (query.page > pageCount) onQueryChangeRef.current({ page: pageCount });
+  }, [query.page, pageCount]);
 
   const checkingId = recheck.isPending && typeof recheck.variables === "number" ? recheck.variables : null;
   const purgingId = purgeOne.isPending && typeof purgeOne.variables === "number" ? purgeOne.variables : null;

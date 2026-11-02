@@ -52,6 +52,11 @@ export default function SettingsPage() {
       ffprobePath !== (settings.data.settings.ffprobePath ?? "") ||
       JSON.stringify(mappings) !== JSON.stringify(settings.data.settings.pathMappings) ||
       localBroadcast !== settings.data.settings.localBroadcast);
+  // Client-side guards mirror the server's 400s so an empty number field or
+  // an empty mapping row disables Save instead of round-tripping an error.
+  const concurrencyValid = Number.isInteger(concurrency) && concurrency >= 1 && concurrency <= 32;
+  const mappingsValid = mappings.every((m) => m.match.trim().length > 0);
+  const formValid = concurrencyValid && mappingsValid;
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["settings"] });
@@ -411,9 +416,13 @@ export default function SettingsPage() {
                 min={1}
                 max={32}
                 value={concurrency}
-                onChange={(e) => setConcurrency(Number(e.target.value))}
+                onChange={(e) => setConcurrency(e.target.value === "" ? Number.NaN : Number(e.target.value))}
+                aria-invalid={!concurrencyValid}
                 className="mt-1"
               />
+              {!concurrencyValid && (
+                <span className="mt-1 block text-xs text-red-600">Enter a whole number from 1 to 32.</span>
+              )}
             </label>
             <label className="text-xs text-neutral-400">
               ffmpeg path override
@@ -501,17 +510,25 @@ export default function SettingsPage() {
             </Button>
           </div>
 
+          {!mappingsValid && (
+            <div className="mt-2 text-xs text-red-600">
+              Every path mapping needs a non-empty “from *arr” value.
+            </div>
+          )}
+
           <Button
             variant="primary"
             type="submit"
             className="mt-4"
-            disabled={save.isPending || settings.isLoading || settings.isError || !dirty}
+            disabled={save.isPending || settings.isLoading || settings.isError || !dirty || !formValid}
             title={
               settings.isError
                 ? "Settings failed to load - saving would overwrite your config"
                 : !dirty
                   ? "No changes to save"
-                  : undefined
+                  : !formValid
+                    ? "Fix the highlighted fields before saving"
+                    : undefined
             }
           >
             {save.isPending ? "Saving..." : "Save changes"}

@@ -284,6 +284,11 @@ describe("validation", () => {
     expect(r.statusCode).toBe(400);
   });
 
+  it("rejects unknown file status filters instead of returning empty", async () => {
+    const r = await app.inject({ method: "GET", url: "/api/files?status=bogus" });
+    expect(r.statusCode).toBe(400);
+  });
+
   it("parses enabled strictly (the string 'false' must disable, not enable)", async () => {
     const off = await app.inject({ method: "PUT", url: "/api/sources/1", payload: { enabled: "false" } });
     expect(off.statusCode).toBe(200);

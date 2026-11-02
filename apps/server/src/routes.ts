@@ -585,6 +585,7 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager, se
   });
 
   // ---- files ----
+  const FILE_STATUSES = ["unchecked", "healthy", "suspect", "corrupt", "missing", "unreachable", "purged"];
   app.get("/api/files", async (req) => {
     const q = (req.query ?? {}) as Record<string, string | undefined>;
     const page = Math.max(1, Number(q.page ?? 1) || 1);
@@ -592,6 +593,8 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager, se
     const where: string[] = [];
     const params: (string | number)[] = [];
     if (q.status) {
+      if (!FILE_STATUSES.includes(q.status))
+        throw new ApiError(400, "status must be one of: " + FILE_STATUSES.join(", "));
       where.push("mf.status = ?");
       params.push(q.status);
     }
