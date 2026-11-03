@@ -163,6 +163,50 @@ export function macInfoPlist({ version }) {
 `;
 }
 
+/** Quote a value for use inside a C string literal. */
+const cQuote = (value) =>
+  `"${String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n").replace(/\r/g, "\\r")}"`;
+
+/**
+ * C source for the macOS app executable. Finder/LaunchServices no longer
+ * launches .app bundles whose CFBundleExecutable is a shell script on
+ * Apple Silicon (LSOpen error -10669), so the icon is a tiny compiled
+ * launcher: set PATH, then exec Node on scripts/launch.mjs.
+ */
+export function launcherCSource({ launch, node, home, port }) {
+  const pathValue = pathEntriesFor(node, home).join(path.delimiter);
+  const portBlock =
+    port == null
+      ? ""
+      : `\n  if (getenv("CHECKARR_PORT") == NULL) setenv("CHECKARR_PORT", ${cQuote(port)}, 1);`;
+  return `#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+int main(int argc, char *argv[]) {
+  setenv("PATH", ${cQuote(pathValue)}, 1);${portBlock}
+  const char *node = ${cQuote(node)};
+  const char *launch = ${cQuote(launch)};
+  if (access(launch, F_OK) != 0) {
+    system("/usr/bin/osascript -e 'display alert \\"Checkarr\\" message \\"The Checkarr launcher moved. Run pnpm app:install from its new folder.\\" as critical' >/dev/null 2>&1");
+    return 1;
+  }
+  const char *useNode = node;
+  if (strchr(useNode, '/') != NULL && access(useNode, X_OK) != 0) useNode = "node";
+  char **nargv = (char **)malloc(sizeof(char *) * (argc + 3));
+  if (!nargv) return 1;
+  nargv[0] = (char *)useNode;
+  nargv[1] = (char *)launch;
+  for (int i = 1; i < argc; i++) nargv[i + 1] = argv[i];
+  nargv[argc + 1] = NULL;
+  if (strchr(useNode, '/') != NULL) execv(useNode, nargv);
+  else execvp(useNode, nargv);
+  system("/usr/bin/osascript -e 'display alert \\"Checkarr\\" message \\"Node.js was not found. Run pnpm app:install from the Checkarr folder again.\\" as critical' >/dev/null 2>&1");
+  return 1;
+}
+`;
+}
+
 export function linuxDesktopEntry({ launch, node, iconPath, home, port }) {
   const pathEntries = pathEntriesFor(node, home);
   const env = [
@@ -297,12 +341,58 @@ export async function ensureDesktopApp(options = {}) {
     const contents = path.join(paths.appPath, "Contents");
     let updated = writeFileEnsured(path.join(contents, "Info.plist"), macInfoPlist({ version }));
     updated = writeFileEnsured(path.join(contents, "PkgInfo"), "APPL????") || updated;
-    updated =
-      writeFileEnsured(
-        path.join(contents, "MacOS", APP_NAME),
-        launcherExecutable({ launch, node, home, port }),
-        0o755
-      ) || updated;
+
+    // Finder no longer launches shell-script .app executables on Apple
+    // Silicon (-10669), so this is a tiny compiled binary (see
+    // launcherCSource). Recompile when its source changes, when the arch
+    // changes, or when the executable is missing/legacy (a shell script).
+    const executablePath = path.join(contents, "MacOS", APP_NAME);
+    const cSource = launcherCSource({ launch, node, home, port });
+    const sourceHash = createHash("sha256").update(cSource).update(process.arch).digest("hex");
+    const launcherStampPath = path.join(contents, "Resources", ".launcher-source");
+    let launcherStamp = null;
+    try {
+      launcherStamp = fs.readFileSync(launcherStampPath, "utf8");
+    } catch {}
+    let executableOk = false;
+    try {
+      const head = Buffer.alloc(4);
+      const fd = fs.openSync(executablePath, "r");
+      fs.readSync(fd, head, 0, 4, 0);
+      fs.closeSync(fd);
+      const isMachO =
+        (head[0] === 0xcf && head[1] === 0xfa) ||
+        (head[0] === 0xce && head[1] === 0xfa) ||
+        (head[0] === 0xca && head[1] === 0xfe) ||
+        (head[0] === 0xfe && head[1] === 0xed);
+      const isScript = head[0] === 0x23 && head[1] === 0x21; // #!
+      executableOk = isMachO && !isScript;
+    } catch {
+      // missing or unreadable - recompile below
+    }
+    if (!executableOk || launcherStamp !== sourceHash) {
+      const work = fs.mkdtempSync(path.join(os.tmpdir(), "checkarr-launcher-"));
+      try {
+        const cPath = path.join(work, "launcher.c");
+        fs.writeFileSync(cPath, cSource);
+        fs.mkdirSync(path.dirname(executablePath), { recursive: true });
+        try {
+          run("cc", ["-O2", "-o", executablePath, cPath]);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          throw new Error(
+            `could not compile the desktop launcher (${msg}). On macOS install the Xcode Command Line Tools once with \`xcode-select --install\` then re-run \`pnpm app:install\``,
+            { cause: err }
+          );
+        }
+        fs.chmodSync(executablePath, 0o755);
+        fs.mkdirSync(path.dirname(launcherStampPath), { recursive: true });
+        fs.writeFileSync(launcherStampPath, sourceHash);
+      } finally {
+        fs.rmSync(work, { recursive: true, force: true });
+      }
+      updated = true;
+    }
 
     const iconPath = path.join(contents, "Resources", `${APP_NAME}.icns`);
     const stampPath = path.join(contents, "Resources", ".icon-source");

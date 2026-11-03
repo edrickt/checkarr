@@ -2,7 +2,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { ensureDesktopApp, removeDesktopApp, windowsShortcutScript } from "../lib/desktop.mjs";
+import {
+  ensureDesktopApp,
+  launcherCSource,
+  removeDesktopApp,
+  windowsShortcutScript
+} from "../lib/desktop.mjs";
 
 const tempHomes = [];
 
@@ -22,11 +27,17 @@ const base = {
   version: "1.2.3"
 };
 
-/** Stand-in for child_process: records commands and fakes iconutil's output. */
+/** Stand-in for child_process: records commands and fakes iconutil's and cc's output. */
 function fakeRun(calls) {
   return (cmd, args) => {
     calls.push([cmd, ...args]);
     if (cmd === "iconutil") fs.writeFileSync(args[args.indexOf("-o") + 1], "icns-bytes");
+    if (cmd === "cc") {
+      const out = args[args.indexOf("-o") + 1];
+      fs.mkdirSync(path.dirname(out), { recursive: true });
+      // Minimal Mach-O 64-bit magic so ensureDesktopApp recognises it.
+      fs.writeFileSync(out, Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 0x00, 0x00, 0x00, 0x00]));
+    }
   };
 }
 
@@ -66,12 +77,22 @@ describe("ensureDesktopApp on macOS", () => {
     expect(plist).toContain("<key>LSUIElement</key>");
     expect(plist).toContain("<string>1.2.3</string>");
 
+    // The executable is a compiled binary (shell scripts fail to open
+    // with -10669 on Apple Silicon), built from launcherCSource.
     const executable = path.join(app, "Contents", "MacOS", "Checkarr");
-    const script = fs.readFileSync(executable, "utf8");
-    expect(script).toContain('"/opt/node/bin/node"');
-    expect(script).toContain('"/repo/checkarr/scripts/launch.mjs"');
-    expect(script).toContain("/opt/node/bin");
+    const head = Buffer.alloc(4);
+    const fd = fs.openSync(executable, "r");
+    fs.readSync(fd, head, 0, 4, 0);
+    fs.closeSync(fd);
+    expect(head[0]).toBe(0xcf);
+    expect(head[1]).toBe(0xfa);
     expect(fs.statSync(executable).mode & 0o111).not.toBe(0);
+    const ccCall = calls.find((c) => c[0] === "cc");
+    expect(ccCall).toBeDefined();
+    expect(ccCall.join(" ")).toContain(executable);
+
+    const stamp = path.join(app, "Contents", "Resources", ".launcher-source");
+    expect(fs.existsSync(stamp)).toBe(true);
 
     const iconCall = calls.find((c) => c[0] === "iconutil");
     expect(iconCall[3]).toMatch(/\.iconset$/);
@@ -79,14 +100,21 @@ describe("ensureDesktopApp on macOS", () => {
     expect(calls.some((c) => c[0] === "iconutil" && c[1] === "-c" && c[2] === "icns")).toBe(true);
   });
 
-  it("puts pnpm's well-known locations on the app's PATH so a first launch can build", async () => {
-    const home = makeHome();
-    await ensureDesktopApp({ ...base, platform: "darwin", home, env: {}, run: fakeRun([]) });
-    const executable = path.join(home, "Applications", "Checkarr.app", "Contents", "MacOS", "Checkarr");
-    const script = fs.readFileSync(executable, "utf8");
-    expect(script).toContain(path.join(home, ".local", "share", "pnpm"));
-    expect(script).toContain("/opt/homebrew/bin");
-    expect(script).toContain(path.dirname(base.node));
+  it("bakes node, launch, and pnpm paths into the compiled launcher source", () => {
+    const home = "/tmp/fake-home";
+    const src = launcherCSource({
+      launch: "/repo/checkarr/scripts/launch.mjs",
+      node: "/opt/node/bin/node",
+      home,
+      port: null
+    });
+    expect(src).toContain("/opt/node/bin/node");
+    expect(src).toContain("/repo/checkarr/scripts/launch.mjs");
+    expect(src).toContain("/opt/node/bin");
+    expect(src).toContain(path.join(home, ".local", "share", "pnpm"));
+    expect(src).toContain("/opt/homebrew/bin");
+    expect(src).toContain('setenv("PATH"');
+    expect(src).toContain("execv");
   });
 
   it("refreshes nothing when the bundle is already current", async () => {

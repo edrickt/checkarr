@@ -10,7 +10,7 @@ A locally hosted media integrity checker for Radarr and Sonarr libraries. It act
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE) ![Node 23.4+](https://img.shields.io/badge/Node-23.4%2B-blue) ![pnpm 11](https://img.shields.io/badge/pnpm-11-orange)
 
-<!-- Screenshot: docs/assets/screenshot-dashboard.png, capture pending -->
+![Checkarr demo — dashboard counts, scan menu, and source settings](docs/checkarr_demo.gif)
 
 - [Features](#features) · [How it works](#how-it-works) · [Try it in 30 seconds](#try-it-in-30-seconds) · [Install](#install) · [Configuration](#configuration) · [API](#api) · [For developers](#for-developers) · [Security](#security) · [License](#license)
 
@@ -43,7 +43,7 @@ Browsers can only decode a handful of codecs, so ffmpeg is the "player":
 | `healthy`     | Probe + all decode checks clean                                                                                          |
 | `corrupt`     | Container unparseable or a decode check failed                                                                           |
 | `suspect`     | Recoverable decode errors, unknown duration, or a timeout                                                                |
-| `missing`     | The \*arr references a file that no longer exists, or a monitored item with no file yet (not downloaded)                |
+| `missing`     | The \*arr references a file that no longer exists, or a monitored item with no file yet (not downloaded)                 |
 | `unreachable` | The file exists but is not readable (permissions)                                                                        |
 | `purged`      | Deleted at the \*arr via Delete & re-search and waiting for its replacement; stays purged (never missing) until it lands |
 | `unchecked`   | Synced but not checked yet                                                                                               |
@@ -97,7 +97,7 @@ pnpm stop              # stops it again
 
 `pnpm start` also installs an app-drawer icon for this checkout (a no-op once up to date):
 
-- **macOS.** `~/Applications/Checkarr.app`, visible in Launchpad and Spotlight
+- **macOS.** `~/Applications/Checkarr.app`, visible in Launchpad and Spotlight (compiles a tiny launcher on install, so the Xcode Command Line Tools are needed once: `xcode-select --install`)
 - **Linux.** `~/.local/share/applications/checkarr.desktop` plus a hicolor icon
 - **Windows.** A Start-menu shortcut
 
