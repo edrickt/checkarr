@@ -6,7 +6,7 @@
 
 A locally hosted media integrity checker for Radarr and Sonarr libraries. It actually plays every file and flags the ones that don't.
 
-**1.0.0 · Node 23.4+ · Radarr + Sonarr · MIT**
+**1.1.0 · Node 23.4+ · Radarr + Sonarr · MIT**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE) ![Node 23.4+](https://img.shields.io/badge/Node-23.4%2B-blue) ![pnpm 11](https://img.shields.io/badge/pnpm-11-orange)
 
