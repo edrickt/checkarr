@@ -71,6 +71,8 @@ Then in the dashboard:
 
 **Requirements:** Node 23.4+ (`node:sqlite`) and pnpm 11. ffmpeg and ffprobe ship via `ffmpeg-static` / `ffprobe-static`, downloaded during `pnpm install`. No system ffmpeg needed except in Docker (see below).
 
+No terminal? After cloning, double-click `Checkarr.command` in Finder (macOS). It installs dependencies on first run, starts the server, opens the dashboard, and installs the app icon below — so the next launch is one click in Launchpad.
+
 ### Quick start (dev)
 
 ```bash
