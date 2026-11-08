@@ -15,7 +15,12 @@ vi.mock("../src/services/checker.js", () => ({
 }));
 
 import { migrate, type DB } from "../src/db.js";
-import { persistOutcome, resumeInterruptedScans, ScanManager } from "../src/services/scanner.js";
+import {
+  persistCheckOutcome,
+  persistOutcome,
+  resumeInterruptedScans,
+  ScanManager
+} from "../src/services/scanner.js";
 import type { CheckContext, CheckOutcome } from "../src/services/checker.js";
 
 function makeDb(): DB {
@@ -299,6 +304,41 @@ describe("resumeInterruptedScans", () => {
     resumeInterruptedScans(db);
     expect((db.prepare("SELECT state FROM scan_items").get() as any).state).toBe("pending");
     expect((db.prepare("SELECT state FROM scan_runs").get() as any).state).toBe("cancelled");
+  });
+});
+
+describe("persistCheckOutcome guard", () => {
+  it("keeps a row purged when a Delete & re-search landed while the re-check was decoding", () => {
+    const db = makeDb();
+    const fileId = seedFile(db);
+    // The re-check started while the row was still 'corrupt'; the user then
+    // deleted the file (the row is now 'purged', same path). The in-flight
+    // check finds nothing on disk and must not demote the row to 'missing'.
+    const startedWith = { id: fileId, path: "/movies/a.mkv", status: "corrupt" };
+    db.prepare("UPDATE media_files SET status = 'purged' WHERE id = ?").run(fileId);
+
+    const verdict = persistCheckOutcome(db, startedWith, {
+      status: "missing",
+      detail: "File not found: /movies/a.mkv",
+      probe: null
+    });
+
+    expect(verdict).toEqual({ wrote: false, reason: "purged-awaiting-replacement" });
+    expect((db.prepare("SELECT status FROM media_files WHERE id = ?").get(fileId) as any).status).toBe(
+      "purged"
+    );
+  });
+
+  it("still discards a verdict when sync relinked the row mid-check", () => {
+    const db = makeDb();
+    const fileId = seedFile(db);
+    db.prepare("UPDATE media_files SET path = '/movies/new.mkv' WHERE id = ?").run(fileId);
+    const verdict = persistCheckOutcome(
+      db,
+      { id: fileId, path: "/movies/a.mkv", status: "unchecked" },
+      { status: "missing", detail: "gone", probe: null }
+    );
+    expect(verdict).toEqual({ wrote: false, reason: "row-changed" });
   });
 });
 

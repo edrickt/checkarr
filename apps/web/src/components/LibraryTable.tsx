@@ -116,10 +116,15 @@ export default function LibraryTable({
   const pageCount = Math.max(1, Math.ceil(total / query.pageSize));
 
   useEffect(() => {
-    // Deleting the last row of the last page leaves the page pointer past
-    // the end: clamp instead of showing a permanently empty table.
-    if (query.page > pageCount) onQueryChangeRef.current({ page: pageCount });
-  }, [query.page, pageCount]);
+    // Deleting the last row of the last page (or a filter shrinking the result
+    // set) leaves the page pointer past the end: clamp instead of showing a
+    // permanently empty table. Only clamp once the listing for THIS query has
+    // loaded - while it is still loading there is no data yet, and clamping
+    // then would bounce every deep link and Next click back to page 1.
+    if (!list.data) return;
+    const loadedPageCount = Math.max(1, Math.ceil(list.data.total / list.data.pageSize));
+    if (query.page > loadedPageCount) onQueryChangeRef.current({ page: loadedPageCount });
+  }, [list.data, query.page]);
 
   const checkingId = recheck.isPending && typeof recheck.variables === "number" ? recheck.variables : null;
   const purgingId = purgeOne.isPending && typeof purgeOne.variables === "number" ? purgeOne.variables : null;

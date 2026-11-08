@@ -1,21 +1,107 @@
 import { createRequire } from "node:module";
 import fs from "node:fs";
+import path from "node:path";
 import { spawn } from "node:child_process";
 import type { AppSettings } from "../settings.js";
 
 const requireFromHere = createRequire(import.meta.url);
 
+/**
+ * Does a Mach-O header describe a binary this host can execute?
+ *
+ * Some bundled static binaries declare support for an architecture but ship
+ * the wrong slice: ffprobe-static@3.1.0 puts an x86_64 binary in its
+ * `bin/darwin/arm64/` folder, which macOS refuses to start on Apple Silicon
+ * without Rosetta ("Bad CPU type in executable"). The check is advisory - it
+ * only rejects a *known* architecture mismatch, and non-macOS hosts are never
+ * filtered. Returns true when it cannot tell (short/unknown header, universal
+ * binary), so it can never hide a usable binary.
+ */
+export function archAllowsBinary(
+  head: Buffer,
+  platform: string = process.platform,
+  arch: string = process.arch
+): boolean {
+  if (platform !== "darwin") return true;
+  if (head.length < 8) return true;
+  const magic = head.readUInt32LE(0);
+  // Thin Mach-O: magic then cputype, both little-endian on Apple hosts.
+  if (magic === 0xfeedfacf || magic === 0xfeedface) {
+    const cpuType = head.readUInt32LE(4);
+    if (cpuType !== 0x01000007 && cpuType !== 0x0100000c) return true; // i386/ppc/...: don't judge
+    return arch === "arm64" ? cpuType === 0x0100000c : cpuType === 0x01000007;
+  }
+  // Universal ("fat") binaries carry multiple slices; assume one fits.
+  return true;
+}
+
+function binaryAllowsHost(file: string): boolean {
+  try {
+    const fd = fs.openSync(file, "r");
+    const head = Buffer.alloc(8);
+    try {
+      const read = fs.readSync(fd, head, 0, head.length, 0);
+      return archAllowsBinary(head.subarray(0, read));
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return true; // unreadable: leave the existing "not runnable" reporting to do its job
+  }
+}
+
+/** The first executable with this name on PATH, or null (existence, not arch). */
+export function pathBinary(name: string): string | null {
+  const pathValue = process.env.PATH ?? "";
+  const exts = process.platform === "win32" ? [".exe", ""] : [""];
+  for (const dir of pathValue.split(path.delimiter)) {
+    if (dir.length === 0) continue;
+    for (const ext of exts) {
+      const candidate = path.join(dir, name + ext);
+      try {
+        fs.accessSync(candidate, fs.constants.X_OK);
+        return candidate;
+      } catch {
+        /* keep looking */
+      }
+    }
+  }
+  return null;
+}
+
+export interface StaticBinaryDeps {
+  /** Whether the bundled binary can run on this host (e.g. Mach-O arch match). */
+  allowsHost: (file: string) => boolean;
+  /** A system fallback found on PATH, if any. */
+  pathBinary: (name: string) => string | null;
+}
+
+/**
+ * Choose between a bundled static binary and a system fallback. A bundled
+ * binary built for another CPU would fail every scan on this host, so a system
+ * binary is strictly better there; when nothing is on PATH the bundled path is
+ * kept (it may still run under Rosetta), so this never makes a working install
+ * worse. Exported with injectable dependencies so the decision is testable on
+ * any platform.
+ */
+export function chooseStaticBinary(
+  bundled: string | null,
+  which: "ffmpeg" | "ffprobe",
+  deps: StaticBinaryDeps
+): string | null {
+  if (bundled === null) return null;
+  if (deps.allowsHost(bundled)) return bundled;
+  return deps.pathBinary(which) ?? bundled;
+}
+
 function staticBinary(which: "ffmpeg" | "ffprobe"): string | null {
   try {
-    if (which === "ffmpeg") {
-      const p = requireFromHere("ffmpeg-static") as unknown;
-      if (typeof p === "string" && fs.existsSync(p)) return p;
-      return null;
-    }
-    const m = requireFromHere("ffprobe-static") as { path?: unknown } | null;
-    const p = m && typeof m === "object" ? m.path : null;
-    if (typeof p === "string" && fs.existsSync(p)) return p;
-    return null;
+    const p =
+      which === "ffmpeg"
+        ? (requireFromHere("ffmpeg-static") as unknown)
+        : ((requireFromHere("ffprobe-static") as { path?: unknown } | null)?.path ?? null);
+    if (typeof p !== "string" || !fs.existsSync(p)) return null;
+    return chooseStaticBinary(p, which, { allowsHost: binaryAllowsHost, pathBinary });
   } catch {
     return null;
   }

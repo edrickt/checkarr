@@ -4,7 +4,11 @@ export type FileStatus =
 /** Scan scopes mirror the statuses; there is no healthy scan (use "all"). */
 export type ScanScope = Exclude<FileStatus, "healthy"> | "all";
 
-/** Statuses Delete & re-search can target; "all" demands confirm: true. */
+/**
+ * Statuses the UI's Delete & re-search can target; "all" demands confirm: true.
+ * The API accepts a few more statuses for scripted clients (see the README);
+ * the UI deliberately limits itself to statuses that still have files on disk.
+ */
 export type PurgeStatus = "corrupt" | "suspect" | "unreachable" | "all";
 
 export interface MediaFile {

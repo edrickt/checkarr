@@ -28,6 +28,42 @@ function trimSlashes(s: string): string {
   return out;
 }
 
+/**
+ * A 200-JSON response is only trustworthy when it has the documented shape.
+ * An auth proxy, an API-version mismatch, or a truncated body can answer with
+ * valid JSON of the wrong shape; treating that as an empty library would make
+ * the sync's cleanup delete every tracked row for the source. Wrong shapes are
+ * therefore hard errors, never data.
+ */
+function expectList<T>(value: unknown, what: string): T[] {
+  if (!Array.isArray(value)) throw new Error(what + " returned a non-array response");
+  return value as T[];
+}
+
+/** Same rule for an object body: null is the documented "not found" signal (a
+ *  real HTTP 404, or an empty *arr DELETE); anything else that is not a plain
+ *  object is an unexpected response and must never be read as absence. */
+function expectObject(value: unknown, what: string): Record<string, unknown> | null {
+  if (value === null) return null;
+  if (typeof value !== "object" || Array.isArray(value))
+    throw new Error(what + " returned an unexpected response");
+  return value as Record<string, unknown>;
+}
+
+function expectEntry<T>(value: unknown, what: string): T {
+  if (value === null || typeof value !== "object" || Array.isArray(value))
+    throw new Error(what + " returned an entry that is not an object");
+  return value as T;
+}
+
+/** The *arr API identifies every library item by a numeric id; a body without
+ *  one (a proxy page object, an error envelope, an API-version change) is an
+ *  unexpected response, not an item to track under the id "undefined". */
+function requireNumericId(value: { id?: unknown }, what: string): void {
+  if (typeof value.id !== "number" || !Number.isInteger(value.id))
+    throw new Error(what + " returned an entry without a numeric id");
+}
+
 export async function fetchArr(
   baseUrl: string,
   apiKey: string,
@@ -58,7 +94,14 @@ export async function fetchArr(
   if (res.status === 401) throw new Error("Unauthorized (401) - check the API key");
   if (res.status === 404 && init?.notFoundOk) return null;
   if (!res.ok) throw new Error(method + " " + apiPath + " failed: HTTP " + res.status + " " + res.statusText);
-  if (text.trim().length === 0) return null;
+  if (text.trim().length === 0) {
+    // *arr DELETE endpoints answer 204 (or 200) with an empty body, which is
+    // success. An empty body on any other method is a broken response - an
+    // auth proxy, a truncated transfer, a wrong URL - and must not be mistaken
+    // for the null "item does not exist" signal.
+    if (method === "DELETE") return null;
+    throw new Error(method + " " + apiPath + " returned HTTP " + res.status + " with an empty body");
+  }
   try {
     return JSON.parse(text);
   } catch {
@@ -127,9 +170,14 @@ function radarrEntry(m: RadarrMovie): SyncEntry | null {
 }
 
 export async function radarrEntries(baseUrl: string, apiKey: string): Promise<SyncEntry[]> {
-  const movies = (await fetchArr(baseUrl, apiKey, "/api/v3/movie")) as RadarrMovie[];
+  const movies = expectList<RadarrMovie>(
+    await fetchArr(baseUrl, apiKey, "/api/v3/movie"),
+    "GET /api/v3/movie"
+  );
   const out: SyncEntry[] = [];
-  for (const m of Array.isArray(movies) ? movies : []) {
+  for (const raw of movies) {
+    const m = expectEntry<RadarrMovie>(raw, "GET /api/v3/movie");
+    requireNumericId(m, "GET /api/v3/movie");
     const e = radarrEntry(m);
     if (e !== null) out.push(e);
   }
@@ -171,19 +219,23 @@ function sonarrEntry(s: SonarrSeries, e: SonarrEpisode): SyncEntry | null {
 }
 
 export async function sonarrEntries(baseUrl: string, apiKey: string): Promise<SyncEntry[]> {
-  const series = (await fetchArr(baseUrl, apiKey, "/api/v3/series")) as SonarrSeries[];
+  const series = expectList<SonarrSeries>(
+    await fetchArr(baseUrl, apiKey, "/api/v3/series"),
+    "GET /api/v3/series"
+  );
   const out: SyncEntry[] = [];
   // Sonarr's /api/v3/episode requires a seriesId (bare calls get HTTP 400) and only
   // embeds episodeFile when includeEpisodeFile=true, so fetch series by series.
-  for (const s of Array.isArray(series) ? series : []) {
-    if (typeof s.id !== "number") continue;
+  for (const rawSeries of series) {
+    const s = expectEntry<SonarrSeries>(rawSeries, "GET /api/v3/series");
+    requireNumericId(s, "GET /api/v3/series");
+    const episodesUrl = "/api/v3/episode?seriesId=" + s.id + "&includeEpisodeFile=true";
     let episodes: SonarrEpisode[];
     try {
-      episodes = (await fetchArr(
-        baseUrl,
-        apiKey,
-        "/api/v3/episode?seriesId=" + s.id + "&includeEpisodeFile=true"
-      )) as SonarrEpisode[];
+      episodes = expectList<SonarrEpisode>(
+        await fetchArr(baseUrl, apiKey, episodesUrl),
+        "GET " + episodesUrl
+      );
     } catch (err) {
       throw new Error(
         "while listing episodes for '" +
@@ -193,7 +245,9 @@ export async function sonarrEntries(baseUrl: string, apiKey: string): Promise<Sy
         { cause: err }
       );
     }
-    for (const e of Array.isArray(episodes) ? episodes : []) {
+    for (const rawEpisode of episodes) {
+      const e = expectEntry<SonarrEpisode>(rawEpisode, "GET " + episodesUrl);
+      requireNumericId(e, "GET " + episodesUrl);
       const entry = sonarrEntry(s, e);
       if (entry !== null) out.push(entry);
     }
@@ -215,17 +269,25 @@ export async function testSource(
   apiKey: string
 ): Promise<{ ok: boolean; appName?: string; version?: string; mismatch?: boolean; error?: string }> {
   const expected = type === "radarr" ? "Radarr" : "Sonarr";
+  const what = "GET /api/v3/system/status";
   try {
     const status = (await fetchArr(baseUrl, apiKey, "/api/v3/system/status")) as {
-      appName?: string;
-      version?: string;
+      appName?: unknown;
+      version?: unknown;
     };
-    const appName = status?.appName ?? undefined;
+    if (status === null || typeof status !== "object" || Array.isArray(status)) {
+      throw new Error(what + " returned an unexpected response");
+    }
+    // "It answered something" is not the same as "it is a Radarr/Sonarr":
+    // an auth proxy or a truncated body must not be reported as a passing test.
+    if (typeof status.appName !== "string" || status.appName.length === 0) {
+      throw new Error(what + " did not identify the application (no appName)");
+    }
     return {
       ok: true,
-      appName,
-      version: status?.version,
-      mismatch: appName !== undefined && appName !== expected
+      appName: status.appName,
+      version: typeof status.version === "string" ? status.version : undefined,
+      mismatch: status.appName !== expected
     };
   } catch (err) {
     return { ok: false, error: String((err as Error)?.message ?? err) };
@@ -403,24 +465,41 @@ export async function syncOneItem(
 ): Promise<ItemSyncResult> {
   let entry: SyncEntry | null;
   if (source.type === "radarr") {
-    const m = (await fetchArr(source.base_url, source.api_key, "/api/v3/movie/" + row.externalId, {
-      notFoundOk: true
-    })) as RadarrMovie | null;
-    entry = m !== null && typeof m === "object" ? radarrEntry(m) : null;
+    const movieUrl = "/api/v3/movie/" + row.externalId;
+    const m = expectObject(
+      await fetchArr(source.base_url, source.api_key, movieUrl, { notFoundOk: true }),
+      "GET " + movieUrl
+    );
+    if (m === null) entry = null;
+    else {
+      requireNumericId(m, "GET " + movieUrl);
+      entry = radarrEntry(m as unknown as RadarrMovie);
+    }
   } else {
-    const e = (await fetchArr(
-      source.base_url,
-      source.api_key,
-      "/api/v3/episode/" + row.externalId + "?includeEpisodeFile=true",
-      { notFoundOk: true }
-    )) as SonarrEpisode | null;
-    if (e === null || typeof e !== "object" || typeof e.seriesId !== "number") {
+    const episodeUrl = "/api/v3/episode/" + row.externalId + "?includeEpisodeFile=true";
+    const e = expectObject(
+      await fetchArr(source.base_url, source.api_key, episodeUrl, { notFoundOk: true }),
+      "GET " + episodeUrl
+    );
+    if (e === null) {
       entry = null;
+    } else if (typeof e.seriesId !== "number" || !Number.isInteger(e.seriesId)) {
+      throw new Error("GET " + episodeUrl + " returned an unexpected response");
     } else {
-      const s = (await fetchArr(source.base_url, source.api_key, "/api/v3/series/" + e.seriesId, {
-        notFoundOk: true
-      })) as SonarrSeries | null;
-      entry = s !== null && typeof s === "object" ? sonarrEntry(s, e) : null;
+      requireNumericId(e, "GET " + episodeUrl);
+      const seriesUrl = "/api/v3/series/" + e.seriesId;
+      const s = expectObject(
+        await fetchArr(source.base_url, source.api_key, seriesUrl, { notFoundOk: true }),
+        "GET " + seriesUrl
+      );
+      // A 404 for the series while its episode exists would mean the *arr no
+      // longer knows the item; a wrong-shaped body (e.g. {}) is not that and
+      // must not rewrite the row under a "Series undefined" title.
+      if (s === null) entry = null;
+      else {
+        requireNumericId(s, "GET " + seriesUrl);
+        entry = sonarrEntry(s as unknown as SonarrSeries, e as unknown as SonarrEpisode);
+      }
     }
   }
 

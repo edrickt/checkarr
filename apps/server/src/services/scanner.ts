@@ -47,17 +47,20 @@ export type PersistVerdict =
  * - A purged row ("Delete & re-search") is expected to have no file on disk
  *   until the replacement lands: a re-check that finds it gone keeps the row
  *   purged instead of demoting it to 'missing'. Sync swaps in the new
- *   download (even under a different filename) or drops the row.
+ *   download (even under a different filename) or drops the row. The purged
+ *   status is checked on the row as it is now, not only on the snapshot the
+ *   check started with: a purge can land while a re-check of the same file is
+ *   still decoding.
  */
 export function persistCheckOutcome(
   db: DB,
   file: { id: number; path: string | null; status: string },
   outcome: CheckOutcome
 ): PersistVerdict {
-  const cur = db.prepare("SELECT path FROM media_files WHERE id = ?").get(file.id) as
-    { path: string } | undefined;
+  const cur = db.prepare("SELECT path, status FROM media_files WHERE id = ?").get(file.id) as
+    { path: string; status: string } | undefined;
   if (!cur || cur.path !== file.path) return { wrote: false, reason: "row-changed" };
-  if (file.status === "purged" && outcome.status === "missing") {
+  if ((file.status === "purged" || cur.status === "purged") && outcome.status === "missing") {
     return { wrote: false, reason: "purged-awaiting-replacement" };
   }
   persistOutcome(db, file.id, outcome);

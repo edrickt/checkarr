@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import LibraryTable from "../src/components/LibraryTable";
 import type { LibraryQuery } from "../src/router";
@@ -134,6 +134,29 @@ describe("LibraryTable", () => {
     await screen.findByText("Alpha");
     await userEvent.click(screen.getByRole("button", { name: "Next" }));
     expect(onQueryChange).toHaveBeenCalledWith({ page: 2 });
+  });
+
+  it("does not clamp a deep-linked page while its listing is still loading", async () => {
+    let resolveFiles!: (value: unknown) => void;
+    filesMock.mockReturnValue(
+      new Promise((resolve) => {
+        resolveFiles = resolve;
+      })
+    );
+    const { onQueryChange } = renderTable({ page: 2 });
+    await new Promise((r) => setTimeout(r, 50));
+    // The old clamp fired on the empty loading result and sent the user to
+    // page 1 before the requested page ever had data.
+    expect(onQueryChange).not.toHaveBeenCalledWith({ page: 1 });
+    resolveFiles({ items, total: 120, page: 2, pageSize: 50 });
+    await screen.findByText("Alpha");
+    expect(onQueryChange).not.toHaveBeenCalled();
+  });
+
+  it("clamps a page that is past the end once the listing has loaded", async () => {
+    filesMock.mockResolvedValue({ items, total: 2, page: 3, pageSize: 50 });
+    const { onQueryChange } = renderTable({ page: 3 });
+    await waitFor(() => expect(onQueryChange).toHaveBeenCalledWith({ page: 1 }));
   });
 
   it("pushes the debounced search text into the query", async () => {

@@ -11,7 +11,8 @@ RUN pnpm install --frozen-lockfile
 COPY tsconfig.base.json ./
 COPY apps/server apps/server
 COPY apps/web apps/web
-# skip bundled ffmpeg download inside the image; system ffmpeg is installed above
+# The workspace install also downloads the bundled static binaries. They are
+# what the app runs; the system ffmpeg installed above is the fallback.
 RUN pnpm build
 
 FROM node:24-bookworm-slim
@@ -23,7 +24,9 @@ ENV NODE_ENV=production
 ENV CHECKARR_DATA_DIR=/data
 # Bind every interface inside the container; docker-compose publishes the
 # port to host loopback only. The API is unauthenticated - keep it that way
-# unless you consciously want it on the LAN (and set CHECKARR_ALLOWED_HOSTS).
+# unless you consciously want it on the LAN. The Host check is permissive in
+# this mode unless CHECKARR_ALLOWED_HOSTS lists the hostname/IP the UI is
+# opened on (DNS-rebinding protection).
 ENV HOST=0.0.0.0
 COPY --from=build /app ./
 # Run as the unprivileged node user. Fresh data volumes inherit this image's

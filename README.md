@@ -6,7 +6,7 @@
 
 A locally hosted media integrity checker for Radarr and Sonarr libraries. It actually plays every file and flags the ones that don't.
 
-**1.1.0 · Node 23.4+ · Radarr + Sonarr · MIT**
+**1.1.1 · Node 23.4+ · Radarr + Sonarr · MIT**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE) ![Node 23.4+](https://img.shields.io/badge/Node-23.4%2B-blue) ![pnpm 11](https://img.shields.io/badge/pnpm-11-orange)
 
@@ -69,7 +69,7 @@ Then in the dashboard:
 
 ## Install
 
-**Requirements:** Node 23.4+ (`node:sqlite`) and pnpm 11. ffmpeg and ffprobe ship via `ffmpeg-static` / `ffprobe-static`, downloaded during `pnpm install`. No system ffmpeg needed except in Docker (see below).
+**Requirements:** Node 23.4+ (`node:sqlite`) and pnpm 11. ffmpeg and ffprobe ship via `ffmpeg-static` / `ffprobe-static`, downloaded during `pnpm install`. No system ffmpeg needed except in Docker (see below). If a bundled binary cannot run on this machine (some static `ffprobe` builds are x86_64-only on Apple Silicon), Checkarr falls back to a system `ffmpeg`/`ffprobe` found on `PATH` (the fallback check is existence/executable only, not architecture); set an explicit path in Settings to pin one.
 
 No terminal? After cloning, double-click `Checkarr.command` in Finder (macOS). It installs dependencies on first run, starts the server, opens the dashboard, and installs the app icon below — so the next launch is one click in Launchpad.
 
@@ -124,7 +124,7 @@ cd docker
 docker compose up -d --build
 ```
 
-The image uses system ffmpeg (no bundled download) and stores data in the `checkarr-data` volume. Mount your media into the container and add path mappings in Checkarr settings when the \*arr-reported paths differ from the container paths:
+The image runs the bundled static binaries and also installs system ffmpeg as a fallback, and stores data in the `checkarr-data` volume. Inside the container the server binds `0.0.0.0`, where the Host check is permissive by default; set `CHECKARR_ALLOWED_HOSTS` to the hostname/IP you publish the UI on to enforce it (DNS-rebinding protection). Mount your media into the container and add path mappings in Checkarr settings when the \*arr-reported paths differ from the container paths:
 
 ```yaml
 # in docker/docker-compose.yml volumes:
@@ -144,7 +144,7 @@ Settings live in SQLite (`data/checkarr.db`, override the directory with `CHECKA
 - **Local broadcasting.** Bind `0.0.0.0` instead of loopback so other devices on your network can open the dashboard (no authentication, trusted networks only). Saves with the rest of the settings and takes effect on "Restart server". An explicit `HOST` environment variable overrides it.
 - **Re-search missing.** One click tells the \*arr to search for every missing item in scope (Radarr `MoviesSearch` / Sonarr `EpisodesSearch`). The library syncs first so the search list reflects what the \*arr currently reports.
 
-Environment: `CHECKARR_PORT` (default 5656; 6767 belongs to Bazarr), `HOST` (default 127.0.0.1), `CHECKARR_DATA_DIR`, `CHECKARR_WEB_DIST`, `LOG_LEVEL`.
+Environment: `CHECKARR_PORT` (default 5656; 6767 belongs to Bazarr), `HOST` (default 127.0.0.1), `CHECKARR_DATA_DIR`, `CHECKARR_WEB_DIST`, `LOG_LEVEL`, `CHECKARR_ALLOWED_HOSTS` (comma-separated hostnames the API accepts; setting it also enforces the Host check while local broadcasting is on).
 
 ## API
 
@@ -162,9 +162,10 @@ DELETE /api/sources/:id               delete source and its files
 POST   /api/sources/:id/test          verify URL + key (GET /api/v3/system/status)
 POST   /api/sync                      pull libraries from all enabled sources (or { sourceId }); 409 while a scan runs
 POST   /api/scan                      { scope: unchecked|corrupt|suspect|missing|unreachable|purged|all, sourceId? } - syncs first
-POST   /api/purge                     { status: corrupt|suspect|all, sourceId? } delete files at the *arr + search replacements; deleted files move to purged
+POST   /api/purge                     { status: unchecked|healthy|suspect|corrupt|missing|unreachable|all, sourceId?, confirm? } delete files at the *arr + search replacements; deleted files move to purged. "all" and "healthy" require { confirm: true }; the UI only offers the statuses that still have files on disk
 POST   /api/files/:id/purge           delete one file at its *arr source + search replacement (syncs the item first)
-POST   /api/scan/cancel               stop the running scan
+POST   /api/scan/cancel               stop the running scan; a scan still syncing the library is cancelled before it starts (the sync itself finishes)
+POST   /api/restart                   restart the HTTP listener (applies the local-broadcast setting)
 POST   /api/research                  queue searches at the *arr for every missing item (or { sourceId }); syncs first; 409 while a scan runs
 GET    /api/scan/current              progress of the active/last run
 GET    /api/files?status=&sourceId=&q=&page=&pageSize=&sort=title|status|size|checked&dir=asc|desc    library listing
@@ -196,9 +197,10 @@ docker        Dockerfile + compose file
 ## Security
 
 - The server binds to `127.0.0.1` by default and has **no authentication**. Do not expose it to the internet as-is. "Local broadcasting" opens it to the LAN. The API also answers `POST /api/restart`, so anyone on the network can bounce the listener.
+- Requests are checked against the `Host` header on the loopback default (defeating DNS-rebinding pages) and mutating requests must be same-origin JSON, so a drive-by web page cannot trigger scans or deletes. Local broadcasting accepts any hostname by default, because the UI is reached by whatever LAN address you use; set `CHECKARR_ALLOWED_HOSTS` to the hostname(s)/IP(s) you actually use and the check is enforced in that mode too.
 - API keys sit in the local database as plaintext.
 - Checkarr never modifies Radarr/Sonarr library metadata except through explicit actions: per-file and bulk Delete & re-search, and Re-search missing.
-- Every operation that touches the library syncs first: per-file operations (Re-check now, per-file Delete & re-search) sync that one item, and batch operations (scan, bulk delete) run the same library sync as the "Sync libraries" button. A 404 at the \*arr removes the row, a newly downloaded file is picked up right away, and a \*arr outage fails the request instead of acting on stale data.
+- Every operation that touches the library syncs first: per-file operations (Re-check now, per-file Delete & re-search) sync that one item, and batch operations (scan, bulk delete) run the same library sync as the "Sync libraries" button. A 404 at the \*arr removes the row, a newly downloaded file is picked up right away, a malformed 2xx response fails the request instead of acting on an empty library, and a \*arr outage fails the request instead of acting on stale data.
 - A scan checks every file independently; killing the server mid-scan leaves remaining files unchecked, and the next scan (scope `unchecked`) picks them up.
 
 ## License

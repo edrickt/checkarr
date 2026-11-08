@@ -30,6 +30,13 @@ function allDigits(s: string): boolean {
   return true;
 }
 
+/** Parse a query value as a positive safe integer, or fall back. */
+function positiveInt(raw: string | undefined, fallback: number): number {
+  if (raw === undefined) return fallback;
+  const n = Number(raw);
+  return Number.isSafeInteger(n) && n >= 1 ? n : fallback;
+}
+
 function escapeLike(s: string): string {
   let out = "";
   for (const ch of s) {
@@ -126,6 +133,35 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager, se
     if (!row) throw new ApiError(404, "source not found");
     return row;
   };
+
+  // ---- batch-operation gate ----
+  // Scan, sync, bulk delete and re-search all sync the library and then act on
+  // it. Those operations must never overlap: a sync (or a delete!) landing
+  // while a scan is starting would act on a different library than the scan
+  // selected, and two requests could both sync before either claims the scan
+  // slot. The gate is claimed synchronously - before any await - so the second
+  // request is refused before it touches the network, and the claim covers a
+  // scan's own pre-sync window. It is released in a finally block.
+  let batchOperation: string | null = null;
+  const runBatch = async <T>(name: string, fn: () => Promise<T>): Promise<T> => {
+    if (batchOperation !== null) {
+      throw new ApiError(
+        409,
+        "another library operation (" + batchOperation + ") is running - wait for it to finish"
+      );
+    }
+    batchOperation = name;
+    try {
+      return await fn();
+    } finally {
+      batchOperation = null;
+    }
+  };
+
+  // Cancel must also work while a scan is still preparing: it syncs the
+  // library before the ScanManager run exists, and a Cancel click in that
+  // window used to be silently ignored (the scan then started anyway).
+  let pendingScan: { cancelled: boolean } | null = null;
 
   // ---- single-item operations sync first ----
   // The *arr is the source of truth, and a media_files row can be stale: a
@@ -409,38 +445,39 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager, se
   app.post("/api/sync", async (req) => {
     // Same gate as purge: a sync mid-scan can relink or clear rows the
     // scanner is mid-flight on, so scans and syncs never overlap.
-    if (scans.isActive()) throw new ApiError(409, "A scan is running - wait for it to finish or cancel it");
-    const b = (req.body ?? {}) as { sourceId?: unknown };
-    let sources: SourceRow[];
-    if (b.sourceId !== undefined) {
-      sources = [getSource(b.sourceId)];
-    } else {
-      sources = db
-        .prepare(
-          "SELECT id, type, name, base_url, api_key, enabled, last_sync_at, last_sync_error FROM sources WHERE enabled = 1 ORDER BY id"
-        )
-        .all() as unknown as SourceRow[];
-    }
-    if (sources.length === 0) throw new ApiError(400, "no sources to sync");
-    const results: Array<Record<string, unknown>> = [];
-    for (const s of sources) {
-      try {
-        const r = await syncSource(db, s);
-        results.push({ sourceId: s.id, name: s.name, ok: true, ...r });
-      } catch (err) {
-        const msg = String((err as Error)?.message ?? err);
-        db.prepare("UPDATE sources SET last_sync_error = ? WHERE id = ?").run(msg, s.id);
-        results.push({ sourceId: s.id, name: s.name, ok: false, error: msg });
+    return runBatch("sync", async () => {
+      if (scans.isActive()) throw new ApiError(409, "A scan is running - wait for it to finish or cancel it");
+      const b = (req.body ?? {}) as { sourceId?: unknown };
+      let sources: SourceRow[];
+      if (b.sourceId !== undefined) {
+        sources = [getSource(b.sourceId)];
+      } else {
+        sources = db
+          .prepare(
+            "SELECT id, type, name, base_url, api_key, enabled, last_sync_at, last_sync_error FROM sources WHERE enabled = 1 ORDER BY id"
+          )
+          .all() as unknown as SourceRow[];
       }
-    }
-    return { results };
+      if (sources.length === 0) throw new ApiError(400, "no sources to sync");
+      const results: Array<Record<string, unknown>> = [];
+      for (const s of sources) {
+        try {
+          const r = await syncSource(db, s);
+          results.push({ sourceId: s.id, name: s.name, ok: true, ...r });
+        } catch (err) {
+          const msg = String((err as Error)?.message ?? err);
+          db.prepare("UPDATE sources SET last_sync_error = ? WHERE id = ?").run(msg, s.id);
+          results.push({ sourceId: s.id, name: s.name, ok: false, error: msg });
+        }
+      }
+      return { results };
+    });
   });
 
   // ---- purge ----
   const PURGE_STATUSES = ["corrupt", "suspect", "missing", "unreachable", "healthy", "unchecked", "all"];
 
   app.post("/api/purge", async (req) => {
-    if (scans.isActive()) throw new ApiError(409, "A scan is running - wait for it to finish or cancel it");
     const b = (req.body ?? {}) as Record<string, unknown>;
     const status = typeof b.status === "string" && b.status !== "" ? b.status : "corrupt";
     if (!PURGE_STATUSES.includes(status))
@@ -459,11 +496,14 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager, se
       if (!Number.isInteger(sourceId)) throw new ApiError(400, "sourceId must be an integer");
       getSource(sourceId); // 404 when the source does not exist
     }
-    // Sync first, then delete: the status selection and the path checks must
-    // reflect what the *arr reports now, not what the last manual sync saw.
-    const synced = await syncSourcesForBatch(sourceId, "delete");
-    const result = await purgeFiles(db, { status, sourceId });
-    return { ...result, synced };
+    return runBatch("delete", async () => {
+      if (scans.isActive()) throw new ApiError(409, "A scan is running - wait for it to finish or cancel it");
+      // Sync first, then delete: the status selection and the path checks must
+      // reflect what the *arr reports now, not what the last manual sync saw.
+      const synced = await syncSourcesForBatch(sourceId, "delete");
+      const result = await purgeFiles(db, { status, sourceId });
+      return { ...result, synced };
+    });
   });
 
   // ---- research missing ----
@@ -472,7 +512,6 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager, se
   // reflects what the *arr reports now: a freshly downloaded file must not
   // be searched for, and a removed item must not be searched for either.
   app.post("/api/research", async (req) => {
-    if (scans.isActive()) throw new ApiError(409, "A scan is running - wait for it to finish or cancel it");
     const b = (req.body ?? {}) as Record<string, unknown>;
     let sourceId: number | undefined;
     if (b.sourceId !== undefined && b.sourceId !== null) {
@@ -480,9 +519,12 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager, se
       if (!Number.isInteger(sourceId)) throw new ApiError(400, "sourceId must be an integer");
       getSource(sourceId); // 404 when the source does not exist
     }
-    const synced = await syncSourcesForBatch(sourceId, "re-search missing");
-    const result = await researchMissing(db, { sourceId });
-    return { ...result, synced };
+    return runBatch("re-search", async () => {
+      if (scans.isActive()) throw new ApiError(409, "A scan is running - wait for it to finish or cancel it");
+      const synced = await syncSourcesForBatch(sourceId, "re-search missing");
+      const result = await researchMissing(db, { sourceId });
+      return { ...result, synced };
+    });
   });
 
   // ---- scan ----
@@ -511,14 +553,29 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager, se
     // downloads that landed since the last sync, and a scan of 'corrupt'
     // must not chase files the *arr has already replaced. A scan running in
     // parallel would both race the sync and relink rows mid-flight, so the
-    // usual gate applies before syncing.
-    if (scans.isActive()) throw new ApiError(409, "A scan is running - wait for it to finish or cancel it");
-    const synced = await syncSourcesForBatch(sourceId, "scan");
-    const runId = await scans.start(scope, sourceId);
-    return { runId, scope, sourceId: sourceId ?? null, synced };
+    // batch gate is claimed before syncing; it also keeps a second batch
+    // request from syncing (or deleting!) during this window.
+    return runBatch("scan", async () => {
+      if (scans.isActive()) throw new ApiError(409, "A scan is running - wait for it to finish or cancel it");
+      const pending = { cancelled: false };
+      pendingScan = pending;
+      try {
+        const synced = await syncSourcesForBatch(sourceId, "scan");
+        // A Cancel click during the pre-scan sync must win over the scan that
+        // was about to start.
+        if (pending.cancelled) throw new ApiError(409, "Scan cancelled before it started");
+        const runId = await scans.start(scope, sourceId);
+        return { runId, scope, sourceId: sourceId ?? null, synced };
+      } finally {
+        if (pendingScan === pending) pendingScan = null;
+      }
+    });
   });
 
   app.post("/api/scan/cancel", async () => {
+    // The scan may still be syncing the library (its run does not exist yet):
+    // flag it so the route aborts instead of starting the scan anyway.
+    if (pendingScan !== null) pendingScan.cancelled = true;
     scans.cancel();
     return { ok: true };
   });
@@ -588,8 +645,12 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager, se
   const FILE_STATUSES = ["unchecked", "healthy", "suspect", "corrupt", "missing", "unreachable", "purged"];
   app.get("/api/files", async (req) => {
     const q = (req.query ?? {}) as Record<string, string | undefined>;
-    const page = Math.max(1, Number(q.page ?? 1) || 1);
-    const pageSize = Math.min(200, Math.max(1, Number(q.pageSize ?? 50) || 50));
+    // page/pageSize are bound straight into SQLite LIMIT/OFFSET, which rejects
+    // a non-integer (Infinity, 1e300, 1.5) with a datatype error - a 500 for
+    // what is merely malformed input. Normalize anything invalid to the
+    // documented defaults instead.
+    const page = positiveInt(q.page, 1);
+    const pageSize = Math.min(200, positiveInt(q.pageSize, 50));
     const where: string[] = [];
     const params: (string | number)[] = [];
     if (q.status) {
@@ -667,19 +728,23 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager, se
   });
 
   app.post("/api/files/:id/purge", async (req) => {
-    if (scans.isActive()) throw new ApiError(409, "A scan is running - wait for it to finish or cancel it");
     const id = Number((req.params as { id: string }).id);
     if (!Number.isInteger(id)) throw new ApiError(400, "invalid file id");
-    const row = getFileWithSource(id);
-    if (!row) throw new ApiError(404, "file not found");
-    if (!row.source_enabled)
-      throw new ApiError(409, "this file's source is disabled - enable it in Settings to purge");
-    // Sync the item first: a stale path must not be deleted, and the *arr
-    // may have already removed the file itself.
-    const synced = await syncSingleItem(row, "delete");
-    if (!synced.found)
-      throw new ApiError(404, "the *arr no longer has this item - it was removed during sync");
-    return purgeFiles(db, { fileId: id });
+    return runBatch("delete", async () => {
+      if (scans.isActive()) throw new ApiError(409, "A scan is running - wait for it to finish or cancel it");
+      const row = getFileWithSource(id);
+      if (!row) throw new ApiError(404, "file not found");
+      if (!row.source_enabled)
+        throw new ApiError(409, "this file's source is disabled - enable it in Settings to purge");
+      // Sync the item first: a stale path must not be deleted, and the *arr
+      // may have already removed the file itself.
+      const synced = await syncSingleItem(row, "delete");
+      if (!synced.found)
+        throw new ApiError(404, "the *arr no longer has this item - it was removed during sync");
+      // The batch gate is held, so no scan can start between the sync and the
+      // delete: the file is never removed out from under a running scan.
+      return purgeFiles(db, { fileId: id });
+    });
   });
 
   app.post("/api/files/:id/recheck", async (req) => {
@@ -694,6 +759,9 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager, se
     const synced = await syncSingleItem(row, "re-check");
     if (!synced.found)
       throw new ApiError(404, "the *arr no longer has this item - it was removed during sync");
+    // A scan can claim the manager while this item sync was in flight; don't
+    // decode/persist a verdict over the scan's work.
+    if (scans.isActive()) throw new ApiError(409, "a scan started while this item was syncing - try again");
     const file = db.prepare("SELECT id, path, status FROM media_files WHERE id = ?").get(id) as
       { id: number; path: string | null; status: string } | undefined;
     if (!file) throw new ApiError(404, "file not found");

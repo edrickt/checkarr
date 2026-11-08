@@ -23,6 +23,9 @@ export default function SettingsPage() {
   const sources = useSources();
   const scan = useScanState();
   const active = scan.data?.active ?? false;
+  // An explicit HOST env var (Docker) overrides the local-broadcast setting:
+  // saving a change would always 400, so the control is disabled instead.
+  const hostFromEnv = settings.data?.server.hostFromEnv ?? false;
 
   const [concurrency, setConcurrency] = useState(8);
   const [ffmpegPath, setFfmpegPath] = useState("");
@@ -237,6 +240,12 @@ export default function SettingsPage() {
           disabled so your real configuration is not overwritten.
         </ErrorBanner>
       )}
+      {sources.isError && (
+        <ErrorBanner>
+          Could not load sources: {(sources.error as Error)?.message ?? "unknown error"} - the list below is
+          incomplete and adding a source may duplicate an existing one.
+        </ErrorBanner>
+      )}
 
       <section>
         <h2 className="mb-3 text-xs font-medium uppercase tracking-wide text-neutral-400">Sources</h2>
@@ -343,7 +352,10 @@ export default function SettingsPage() {
               )}
             </div>
           ))}
-          {(sources.data?.sources ?? []).length === 0 && (
+          {sources.isLoading && !sources.data && (
+            <div className="py-4 text-sm text-neutral-400">Loading sources...</div>
+          )}
+          {!sources.isLoading && !sources.isError && (sources.data?.sources ?? []).length === 0 && (
             <div className="py-4 text-sm text-neutral-400">No sources configured yet.</div>
           )}
         </div>
@@ -461,8 +473,12 @@ export default function SettingsPage() {
             <Toggle
               checked={localBroadcast}
               onChange={setLocalBroadcast}
-              disabled={settings.isLoading || settings.isError}
+              disabled={settings.isLoading || settings.isError || hostFromEnv}
               label="Local broadcasting"
+              title={
+                (localBroadcast ? "Listening on all network interfaces" : "Listening on localhost only") +
+                " - takes effect after a restart"
+              }
             />
           </div>
 

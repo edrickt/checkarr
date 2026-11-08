@@ -53,6 +53,32 @@ let stubMovies: Record<
 let stubDeletes: string[];
 let arrStub: Server;
 let arrStubUrl: string;
+// Library-list requests answered by the stub, and responses deliberately held
+// in flight so a test can observe the sync-before-scan window.
+// External id whose single-item GET answers 200 with an empty body (auth proxy /
+// truncation): must be an error that touches nothing, never "item gone".
+let emptySingleMovieBody: string | null = null;
+let movieListRequests = 0;
+let heldMovieLists: import("node:http").ServerResponse[] | null = null;
+let respondMovieList: (res: import("node:http").ServerResponse) => void;
+
+/** The subset of a Fastify injected response these gate tests assert on. */
+type InjectResult = Promise<{ statusCode: number; json: () => any }>;
+
+function releaseMovieLists(): void {
+  const held = heldMovieLists;
+  heldMovieLists = null;
+  for (const res of held ?? []) respondMovieList(res);
+}
+
+async function waitForScanToSettle(): Promise<void> {
+  for (let i = 0; i < 300; i++) {
+    const cur = await app.inject({ method: "GET", url: "/api/scan/current" });
+    if (cur.json().active === false) return;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  throw new Error("scan did not settle within 3s");
+}
 
 beforeAll(async () => {
   db = new DatabaseSync(":memory:");
@@ -77,6 +103,24 @@ beforeAll(async () => {
     "9": { id: 9, title: "Not Yet", year: 2026, monitored: true, movieFile: null }
   };
   stubDeletes = [];
+  respondMovieList = (res) => {
+    const list = Object.values(stubMovies)
+      .filter((m) => m !== undefined)
+      .map((m) =>
+        m.id === 1
+          ? {
+              ...m,
+              movieFile: {
+                id: 1000,
+                path: path.join(dir, "media.mp4"),
+                size: 16,
+                quality: { quality: { name: "WEBDL-1080p" } }
+              }
+            }
+          : m
+      );
+    res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(list));
+  };
   arrStub = createServer((req, res) => {
     if (req.headers["x-api-key"] !== "secret-key-1234") {
       res.writeHead(401).end("{}");
@@ -87,26 +131,21 @@ beforeAll(async () => {
     // movie keeps its file here (unlike the single-item fixture above), so a
     // batch sync upserts row 1 in place instead of unparking it.
     if (req.method === "GET" && u.pathname === "/api/v3/movie") {
-      const list = Object.values(stubMovies)
-        .filter((m) => m !== undefined)
-        .map((m) =>
-          m.id === 1
-            ? {
-                ...m,
-                movieFile: {
-                  id: 1000,
-                  path: path.join(dir, "media.mp4"),
-                  size: 16,
-                  quality: { quality: { name: "WEBDL-1080p" } }
-                }
-              }
-            : m
-        );
-      res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(list));
+      movieListRequests++;
+      if (heldMovieLists !== null) {
+        heldMovieLists.push(res);
+        return;
+      }
+      respondMovieList(res);
       return;
     }
     const one = /^\/api\/v3\/movie\/(\d+)$/.exec(u.pathname);
     if (req.method === "GET" && one) {
+      if (emptySingleMovieBody === one[1]) {
+        res.writeHead(200);
+        res.end();
+        return;
+      }
       const movie = stubMovies[one[1]];
       if (!movie) {
         res.writeHead(404).end("{}");
@@ -287,6 +326,21 @@ describe("validation", () => {
   it("rejects unknown file status filters instead of returning empty", async () => {
     const r = await app.inject({ method: "GET", url: "/api/files?status=bogus" });
     expect(r.statusCode).toBe(400);
+  });
+
+  it("normalizes non-integer page/pageSize values instead of failing the query", async () => {
+    // Number("Infinity") / 1e300 / 1.5 used to reach the SQLite LIMIT/OFFSET
+    // bind and surface as an unhandled 500 instead of the documented listing.
+    for (const q of ["page=Infinity", "page=1e300", "page=1.5", "page=1.0000001"]) {
+      const r = await app.inject({ method: "GET", url: "/api/files?" + q });
+      expect(r.statusCode).toBe(200);
+      expect(r.json().page).toBe(1);
+    }
+    for (const q of ["pageSize=Infinity", "pageSize=1e300", "pageSize=1.5"]) {
+      const r = await app.inject({ method: "GET", url: "/api/files?" + q });
+      expect(r.statusCode).toBe(200);
+      expect(r.json().pageSize).toBe(50);
+    }
   });
 
   it("parses enabled strictly (the string 'false' must disable, not enable)", async () => {
@@ -491,6 +545,38 @@ describe("single-item operations sync first", () => {
     }
   });
 
+  it("re-check keeps the row and reports 502 when the *arr answers 200 with an empty body", async () => {
+    // A 2xx empty body is not a 404. It used to make syncOneItem report the
+    // item as gone, so re-check deleted the row (and its history).
+    stubMovies["30"] = { id: 30, title: "Empty Body", year: 2026, monitored: true, movieFile: null };
+    const rowPath = path.join(dir, "empty-body.mp4");
+    fs.writeFileSync(rowPath, "0123456789abcdef");
+    const id = Number(
+      db
+        .prepare(
+          "INSERT INTO media_files (source_id, kind, external_id, title, path, status)" +
+            " VALUES (1, 'movie', '30', 'Empty Body', ?, 'healthy')"
+        )
+        .run(rowPath).lastInsertRowid
+    );
+    emptySingleMovieBody = "30";
+    try {
+      const r = await app.inject({ method: "POST", url: "/api/files/" + id + "/recheck" });
+      expect(r.statusCode).toBe(502);
+      expect(r.json().error).toMatch(/empty body/);
+      expect(db.prepare("SELECT id, path, status FROM media_files WHERE id = ?").get(id)).toMatchObject({
+        id,
+        path: rowPath,
+        status: "healthy"
+      });
+    } finally {
+      emptySingleMovieBody = null;
+      delete stubMovies["30"];
+      db.prepare("DELETE FROM media_files WHERE id = ?").run(id);
+      fs.rmSync(rowPath, { force: true });
+    }
+  });
+
   it("re-check reports a clear sync failure (502) and touches nothing when the *arr is down", async () => {
     db.prepare(
       "INSERT INTO sources (id, type, name, base_url, api_key) VALUES (2, 'radarr', 'Down', 'http://127.0.0.1:1', 'k')"
@@ -633,6 +719,131 @@ describe("batch operations sync first", () => {
       expect(r.json().error).toMatch(/no enabled sources to sync before delete/);
     } finally {
       db.prepare("UPDATE sources SET enabled = 1 WHERE id = 1").run();
+    }
+  });
+});
+
+describe("batch operation gate", () => {
+  // Scan and purge only act on the state a sync just read, so their sync must
+  // never overlap another batch operation or a scan's own preparation window:
+  // otherwise a second request can sync/purge the library while a scan is
+  // starting, and a Cancel pressed during the pre-scan sync would be ignored.
+  const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+  async function waitHeld(count: number): Promise<void> {
+    for (let i = 0; i < 300 && (heldMovieLists?.length ?? 0) < count; i++) await sleep(5);
+  }
+
+  it("a scan cancelled while its library sync is in flight never starts", async () => {
+    heldMovieLists = [];
+    try {
+      const before = (db.prepare("SELECT COUNT(*) AS n FROM scan_runs").get() as { n: number }).n;
+      const scanPromise = app.inject({ method: "POST", url: "/api/scan", payload: { scope: "all" } });
+      await waitHeld(1);
+      expect(heldMovieLists!.length).toBe(1);
+
+      const cancel = await app.inject({ method: "POST", url: "/api/scan/cancel", payload: {} });
+      expect(cancel.statusCode).toBe(200);
+      releaseMovieLists();
+
+      const r = await scanPromise;
+      expect(r.statusCode).toBe(409);
+      expect(r.json().error).toMatch(/cancelled before it started/i);
+      expect((db.prepare("SELECT COUNT(*) AS n FROM scan_runs").get() as { n: number }).n).toBe(before);
+      const cur = await app.inject({ method: "GET", url: "/api/scan/current" });
+      expect(cur.json().active).toBe(false);
+    } finally {
+      releaseMovieLists();
+      await app.inject({ method: "POST", url: "/api/scan/cancel", payload: {} });
+    }
+  });
+
+  it("rejects a second batch operation before it can run its own sync", async () => {
+    heldMovieLists = [];
+    let first: InjectResult | null = null;
+    let second: InjectResult | null = null;
+    try {
+      first = app.inject({ method: "POST", url: "/api/scan", payload: { scope: "all" } });
+      await waitHeld(1);
+      movieListRequests = 0;
+
+      second = app.inject({ method: "POST", url: "/api/scan", payload: { scope: "all" } });
+      const settled = await Promise.race([second, sleep(250).then(() => null)]);
+      expect(settled).not.toBeNull();
+      expect(settled!.statusCode).toBe(409);
+      // The rejected request never reached the *arr: only the first scan syncs.
+      expect(movieListRequests).toBe(0);
+      expect(heldMovieLists!.length).toBe(1);
+
+      releaseMovieLists();
+      expect((await first).statusCode).toBe(200);
+      await waitForScanToSettle();
+    } finally {
+      releaseMovieLists();
+      await app.inject({ method: "POST", url: "/api/scan/cancel", payload: {} });
+      await Promise.allSettled([first ?? Promise.resolve(), second ?? Promise.resolve()]);
+      await sleep(50);
+    }
+  });
+
+  it("rejects a per-file delete while a scan is preparing", async () => {
+    heldMovieLists = [];
+    let scanPromise: InjectResult | null = null;
+    let purgeId: number | null = null;
+    try {
+      scanPromise = app.inject({ method: "POST", url: "/api/scan", payload: { scope: "all" } });
+      await waitHeld(1);
+      purgeId = Number(
+        db
+          .prepare(
+            "INSERT INTO media_files (source_id, kind, external_id, title, path, status)" +
+              " VALUES (1, 'movie', '444', 'Gate Purge', ?, 'corrupt')"
+          )
+          .run(path.join(dir, "purge.mp4")).lastInsertRowid
+      );
+
+      const purge = await app.inject({
+        method: "POST",
+        url: "/api/files/" + purgeId + "/purge",
+        payload: {}
+      });
+      expect(purge.statusCode).toBe(409);
+
+      releaseMovieLists();
+      expect((await scanPromise!).statusCode).toBe(200);
+      await waitForScanToSettle();
+    } finally {
+      releaseMovieLists();
+      await app.inject({ method: "POST", url: "/api/scan/cancel", payload: {} });
+      await Promise.allSettled([scanPromise ?? Promise.resolve()]);
+      if (purgeId !== null) db.prepare("DELETE FROM media_files WHERE id = ?").run(purgeId);
+      await sleep(50);
+    }
+  });
+
+  it("rejects a library sync while a scan is still preparing", async () => {
+    heldMovieLists = [];
+    let scanPromise: InjectResult | null = null;
+    let syncPromise: InjectResult | null = null;
+    try {
+      scanPromise = app.inject({ method: "POST", url: "/api/scan", payload: { scope: "all" } });
+      await waitHeld(1);
+      movieListRequests = 0;
+
+      syncPromise = app.inject({ method: "POST", url: "/api/sync", payload: {} });
+      const settled = await Promise.race([syncPromise, sleep(250).then(() => null)]);
+      expect(settled).not.toBeNull();
+      expect(settled!.statusCode).toBe(409);
+      expect(movieListRequests).toBe(0);
+
+      releaseMovieLists();
+      expect((await scanPromise!).statusCode).toBe(200);
+      await waitForScanToSettle();
+    } finally {
+      releaseMovieLists();
+      await app.inject({ method: "POST", url: "/api/scan/cancel", payload: {} });
+      await Promise.allSettled([scanPromise ?? Promise.resolve(), syncPromise ?? Promise.resolve()]);
+      await sleep(50);
     }
   });
 });

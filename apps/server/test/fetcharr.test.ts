@@ -1,6 +1,9 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { createServer, type Server } from "node:http";
-import { fetchArr } from "../src/services/sync.js";
+import { fetchArr, testSource } from "../src/services/sync.js";
+
+// What /api/v3/system/status answers; testSource must not call a broken body OK.
+let statusMode: "ok" | "empty" | "array" = "ok";
 
 describe("fetchArr body handling", () => {
   let server: Server;
@@ -9,6 +12,21 @@ describe("fetchArr body handling", () => {
   beforeAll(async () => {
     server = createServer((req, res) => {
       const u = new URL(req.url ?? "/", "http://localhost");
+      if (u.pathname === "/api/v3/system/status") {
+        if (statusMode === "empty") {
+          res.writeHead(200);
+          res.end();
+          return;
+        }
+        if (statusMode === "array") {
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify([]));
+          return;
+        }
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ appName: "Radarr", version: "5.14.0" }));
+        return;
+      }
       if (u.pathname === "/empty204") {
         res.writeHead(204);
         res.end();
@@ -37,12 +55,23 @@ describe("fetchArr body handling", () => {
 
   afterAll(() => new Promise<void>((resolve) => server.close(() => resolve())));
 
+  afterEach(() => {
+    statusMode = "ok";
+  });
+
   it("returns null for a 204 with an empty body (real *arr DELETE behavior)", async () => {
     expect(await fetchArr(url, "k", "/empty204", { method: "DELETE" })).toBeNull();
   });
 
-  it("returns null for a 200 with an empty body", async () => {
-    expect(await fetchArr(url, "k", "/empty200")).toBeNull();
+  it("throws for a 200 GET with an empty body (it is not a 404)", async () => {
+    // null is the "the *arr does not have this item" signal. Returning it for
+    // an empty 2xx body let syncOneItem delete a tracked row (and its history)
+    // when an auth proxy or a truncated response answered 200 with no body.
+    await expect(fetchArr(url, "k", "/empty200")).rejects.toThrow(/empty body/);
+  });
+
+  it("still returns null for an empty 200 on DELETE (preserved delete semantics)", async () => {
+    expect(await fetchArr(url, "k", "/empty200", { method: "DELETE" })).toBeNull();
   });
 
   it("parses non-empty JSON", async () => {
@@ -55,5 +84,36 @@ describe("fetchArr body handling", () => {
 
   it("wraps connection failures with the base url", async () => {
     await expect(fetchArr("http://127.0.0.1:9", "k", "/api/v3/movie")).rejects.toThrow(/Cannot reach/);
+  });
+
+  describe("testSource", () => {
+    it("reports a working *arr with its app name and version", async () => {
+      expect(await testSource("radarr", url, "k")).toEqual({
+        ok: true,
+        appName: "Radarr",
+        version: "5.14.0",
+        mismatch: false
+      });
+    });
+
+    it("flags an app-type mismatch instead of silently accepting it", async () => {
+      const result = await testSource("sonarr", url, "k");
+      expect(result.ok).toBe(true);
+      expect(result.mismatch).toBe(true);
+    });
+
+    it("reports an empty 200 body as a failure, not OK", async () => {
+      statusMode = "empty";
+      const result = await testSource("radarr", url, "k");
+      expect(result.ok).toBe(false);
+      expect(result.error).toMatch(/empty body/);
+    });
+
+    it("reports a non-object body as a failure", async () => {
+      statusMode = "array";
+      const result = await testSource("radarr", url, "k");
+      expect(result.ok).toBe(false);
+      expect(result.error).toMatch(/unexpected response/);
+    });
   });
 });

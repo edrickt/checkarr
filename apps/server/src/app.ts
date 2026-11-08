@@ -7,18 +7,46 @@ import { ScanManager } from "./services/scanner.js";
 import { getSettings } from "./settings.js";
 import type { DB } from "./db.js";
 
-// Hostnames the UI may be opened on. The 127.0.0.1 bind alone is not a
-// security boundary: without a Host check, DNS rebinding makes an attacker
-// page same-origin with this API (API-key theft, media exfil, arbitrary file
-// reads through re-written path mappings). When the server deliberately binds
-// every interface (HOST=0.0.0.0, Docker), hostname checking is disabled by
-// default; lock a LAN deployment down with CHECKARR_ALLOWED_HOSTS (comma-
-// separated hostnames).
-const ALLOWED_HOSTNAMES = new Set(
-  ["127.0.0.1", "localhost", "::1", "[::1]"]
-    .concat((process.env.CHECKARR_ALLOWED_HOSTS ?? "").split(",").map((s) => s.trim()))
-    .filter((h) => h.length > 0)
-);
+// Hostnames the UI may be opened on. The loopback bind alone is not a security
+// boundary: without a Host check, DNS rebinding makes an attacker page
+// same-origin with this API (API-key theft, media exfil, arbitrary file reads
+// through re-written path mappings). In local-broadcast mode (HOST=0.0.0.0,
+// Docker) the UI is reached by whatever LAN address the user opens, which the
+// server cannot know; there hostname checking is only enabled when
+// CHECKARR_ALLOWED_HOSTS lists the hostnames in use, and then it is enforced.
+const LOOPBACK_HOSTNAMES = ["127.0.0.1", "localhost", "::1", "[::1]"];
+
+/** Extra hostnames from CHECKARR_ALLOWED_HOSTS (comma-separated). Read when the
+ *  app is created, so a restart picks up a changed value. */
+function envAllowedHostnames(env: NodeJS.ProcessEnv = process.env): string[] {
+  return (env.CHECKARR_ALLOWED_HOSTS ?? "")
+    .split(",")
+    .map((h) => h.trim().toLowerCase())
+    .filter((h) => h.length > 0);
+}
+
+export interface HostGuardPolicy {
+  /** The address the listener is currently bound to (live setting). */
+  bindHost: string;
+  /** Hostnames accepted as this server (loopback + CHECKARR_ALLOWED_HOSTS). */
+  allowed: ReadonlySet<string>;
+  /** Check the list even while broadcasting; true when the allowlist is set. */
+  enforceWhileBroadcasting: boolean;
+}
+
+export function requestHostAllowed(header: string | undefined, policy: HostGuardPolicy): boolean {
+  if (header === undefined) return true; // HTTP/1.0-style clients
+  // The bind host is a live setting (local broadcast), so the caller re-reads
+  // it per request instead of freezing it at startup.
+  const host = stripPort(header.toLowerCase());
+  if (policy.allowed.has(host)) return true;
+  // Broadcasting means the UI is opened on addresses this process cannot know.
+  // Without a configured allowlist, keep the long-standing permissive default;
+  // configuring CHECKARR_ALLOWED_HOSTS opts this deployment into enforcing it
+  // (DNS-rebinding protection) while broadcasting too.
+  if (isBroadcastHost(policy.bindHost) && !policy.enforceWhileBroadcasting) return true;
+  return false;
+}
 
 function stripPort(host: string): string {
   if (host.startsWith("[")) {
@@ -30,20 +58,18 @@ function stripPort(host: string): string {
   return first !== -1 && first === last ? host.slice(0, first) : host;
 }
 
-function requestHostAllowed(header: string | undefined): boolean {
-  if (header === undefined) return true; // HTTP/1.0-style clients
-  // The bind host is a live setting (local broadcast), so re-read it per
-  // request instead of freezing it at startup.
-  if (isBroadcastHost(getBindHost())) return true;
-  return ALLOWED_HOSTNAMES.has(stripPort(header.toLowerCase()));
-}
-
 const MUTATING = new Set(["POST", "PUT", "DELETE", "PATCH"]);
 
 async function createApp(db: DB, scans: ScanManager): Promise<FastifyInstance> {
   // forceCloseConnections: closing for a restart must not hang on idle
   // keep-alive browser sockets.
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" }, forceCloseConnections: true });
+  const envHosts = envAllowedHostnames();
+  const allowedHostnames = new Set([...LOOPBACK_HOSTNAMES, ...envHosts]);
+  const hostPolicy: Omit<HostGuardPolicy, "bindHost"> = {
+    allowed: allowedHostnames,
+    enforceWhileBroadcasting: envHosts.length > 0
+  };
 
   const serverControl: ServerControl = {
     bindHost: getBindHost,
@@ -62,7 +88,7 @@ async function createApp(db: DB, scans: ScanManager): Promise<FastifyInstance> {
   registerApi(app, db, scans, serverControl);
 
   app.addHook("onRequest", async (req, reply) => {
-    if (!requestHostAllowed(req.headers.host)) {
+    if (!requestHostAllowed(req.headers.host, { ...hostPolicy, bindHost: getBindHost() })) {
       return reply.code(403).send({ error: "unrecognized host - open the UI on localhost" });
     }
     if (MUTATING.has(req.method)) {

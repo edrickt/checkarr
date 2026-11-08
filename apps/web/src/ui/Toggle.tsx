@@ -2,12 +2,15 @@ export function Toggle({
   checked,
   onChange,
   disabled,
-  label
+  label,
+  title
 }: {
   checked: boolean;
   onChange: (v: boolean) => void;
   disabled?: boolean;
   label: string;
+  /** Hover explanation; defaults to the source-enablement wording. */
+  title?: string;
 }) {
   return (
     <button
@@ -16,7 +19,9 @@ export function Toggle({
       aria-checked={checked}
       aria-label={label}
       disabled={disabled}
-      title={(checked ? "Enabled" : "Disabled") + " - sync and actions only run against enabled sources"}
+      title={
+        title ?? (checked ? "Enabled" : "Disabled") + " - sync and actions only run against enabled sources"
+      }
       onClick={() => onChange(!checked)}
       className={
         "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-40 " +

@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { createServer, type Server } from "node:http";
 import { DatabaseSync } from "node:sqlite";
 import { migrate, type DB } from "../src/db.js";
@@ -104,6 +104,21 @@ const EPISODES: EpisodeFixture[] = [
   }
 ];
 
+// A malformed-but-200 *arr payload must never be mistaken for an empty
+// library: the sync would otherwise treat the response as "nothing exists"
+// and delete every tracked row for that source. `badShape` swaps a valid
+// response for a wrong-shaped one so the guard is exercised.
+let badShape:
+  | "movies"
+  | "episodes"
+  | "oneMovie"
+  | "emptyOneMovie"
+  | "emptyMovies"
+  | "movieEntry"
+  | "episodeEntry"
+  | "oneSeries"
+  | null = null;
+
 describe("sync", () => {
   let server: Server;
   let url: string;
@@ -117,7 +132,16 @@ describe("sync", () => {
       const json = (body: unknown) =>
         res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(body));
       const u = new URL(req.url ?? "/", "http://localhost");
-      if (u.pathname === "/api/v3/movie") return json(MOVIES);
+      if (u.pathname === "/api/v3/movie") {
+        if (badShape === "movies") return json({ message: "unexpected response shape" });
+        if (badShape === "emptyMovies") {
+          res.writeHead(200);
+          res.end();
+          return;
+        }
+        if (badShape === "movieEntry") return json([{ title: "no id here" }]);
+        return json(MOVIES);
+      }
       if (u.pathname === "/api/v3/series") return json(SERIES);
       // Real Sonarr rejects bare /episode calls with HTTP 400 and only embeds
       // episodeFile when includeEpisodeFile=true. Mimic both so a regression here fails loudly.
@@ -129,6 +153,8 @@ describe("sync", () => {
             .end(JSON.stringify({ message: "seriesId or episodeIds must be provided" }));
           return;
         }
+        if (badShape === "episodes") return json({ message: "unexpected response shape" });
+        if (badShape === "episodeEntry") return json(EPISODES.map((e) => ({ ...e, id: String(e.id) })));
         const includeFile = u.searchParams.get("includeEpisodeFile") === "true";
         return json(
           EPISODES.filter((e) => String(e.seriesId) === sid).map((e) =>
@@ -139,11 +165,18 @@ describe("sync", () => {
       // Single-item fetches used by syncOneItem.
       const oneMovie = /^\/api\/v3\/movie\/(\d+)$/.exec(u.pathname);
       if (oneMovie) {
+        if (badShape === "oneMovie") return json([{ id: Number(oneMovie[1]) }]);
+        if (badShape === "emptyOneMovie") {
+          res.writeHead(200);
+          res.end();
+          return;
+        }
         const m = MOVIES.find((mv) => String(mv.id) === oneMovie[1]);
         return m ? json(m) : res.writeHead(404).end("{}");
       }
       const oneSeries = /^\/api\/v3\/series\/(\d+)$/.exec(u.pathname);
       if (oneSeries) {
+        if (badShape === "oneSeries") return json({});
         const s = SERIES.find((sv) => String(sv.id) === oneSeries[1]);
         return s ? json(s) : res.writeHead(404).end("{}");
       }
@@ -162,6 +195,10 @@ describe("sync", () => {
   });
 
   afterAll(() => new Promise<void>((resolve) => server.close(() => resolve())));
+
+  afterEach(() => {
+    badShape = null;
+  });
 
   it("radarr: adds only files, upserts on re-sync", async () => {
     const db = makeDb();
@@ -639,6 +676,111 @@ describe("sync", () => {
       const id = insertRow(db, { external_id: "1", path: "/movies/alpha.mkv", status: "healthy" });
       await expect(syncOneItem(db, src, { id, externalId: "1" })).rejects.toThrow(/Unauthorized/);
       expect(rowById(db, id)).toMatchObject({ status: "healthy" }); // failure changed nothing
+    });
+  });
+
+  // A *arr auth proxy, a wrong API version, or a partially written response can
+  // answer HTTP 200 with valid JSON of the wrong shape. Treating that as an
+  // empty library deletes every tracked row for the source (and the same for a
+  // single-item refresh, which would park a healthy row as missing). These
+  // tests pin the "unexpected shape is an error, never data" rule.
+  describe("malformed *arr responses", () => {
+    it("rejects a non-array movie list and keeps every tracked row", async () => {
+      const db = makeDb();
+      const src = insertSource(db, "radarr", url, "good-key");
+      await syncSource(db, src);
+      expect((db.prepare("SELECT COUNT(*) AS n FROM media_files").get() as { n: number }).n).toBe(1);
+
+      badShape = "movies";
+      await expect(syncSource(db, src)).rejects.toThrow(/movie.*non-array|non-array.*movie/i);
+      expect((db.prepare("SELECT COUNT(*) AS n FROM media_files").get() as { n: number }).n).toBe(1);
+      expect(db.prepare("SELECT path FROM media_files").get()).toMatchObject({ path: "/movies/alpha.mkv" });
+    });
+
+    it("rejects a non-array episode page and keeps every tracked row", async () => {
+      const db = makeDb();
+      const src = insertSource(db, "sonarr", url, "good-key");
+      await syncSource(db, src);
+      expect((db.prepare("SELECT COUNT(*) AS n FROM media_files").get() as { n: number }).n).toBe(2);
+
+      badShape = "episodes";
+      await expect(syncSource(db, src)).rejects.toThrow(/episode.*non-array|non-array.*episode/i);
+      expect((db.prepare("SELECT COUNT(*) AS n FROM media_files").get() as { n: number }).n).toBe(2);
+    });
+
+    it("rejects a 200 with an empty body instead of deleting the row (auth proxy / truncation)", async () => {
+      // fetchArr used to return null both for a real 404 and for an empty 2xx
+      // body, so syncOneItem treated a broken proxy response as "item gone"
+      // and deleted the row and its history.
+      const db = makeDb();
+      const src = insertSource(db, "radarr", url, "good-key");
+      await syncSource(db, src);
+      expect((db.prepare("SELECT COUNT(*) AS n FROM media_files").get() as { n: number }).n).toBe(1);
+
+      badShape = "emptyOneMovie";
+      await expect(syncOneItem(db, src, { id: 1, externalId: "1" })).rejects.toThrow(/empty body/);
+      expect(db.prepare("SELECT path, status FROM media_files WHERE id = 1").get()).toMatchObject({
+        path: "/movies/alpha.mkv",
+        status: "unchecked"
+      });
+    });
+
+    it("rejects a 200 empty library list instead of wiping every row", async () => {
+      const db = makeDb();
+      const src = insertSource(db, "radarr", url, "good-key");
+      await syncSource(db, src);
+      badShape = "emptyMovies";
+      await expect(syncSource(db, src)).rejects.toThrow(/empty body/);
+      expect((db.prepare("SELECT COUNT(*) AS n FROM media_files").get() as { n: number }).n).toBe(1);
+    });
+
+    it("rejects a movie list entry without a numeric id and keeps every row", async () => {
+      const db = makeDb();
+      const src = insertSource(db, "radarr", url, "good-key");
+      await syncSource(db, src);
+      badShape = "movieEntry";
+      await expect(syncSource(db, src)).rejects.toThrow(/numeric id/);
+      expect((db.prepare("SELECT COUNT(*) AS n FROM media_files").get() as { n: number }).n).toBe(1);
+    });
+
+    it("rejects an episode page entry without a numeric id and keeps every row", async () => {
+      const db = makeDb();
+      const src = insertSource(db, "sonarr", url, "good-key");
+      await syncSource(db, src);
+      badShape = "episodeEntry";
+      await expect(syncSource(db, src)).rejects.toThrow(/numeric id/);
+      expect((db.prepare("SELECT COUNT(*) AS n FROM media_files").get() as { n: number }).n).toBe(2);
+    });
+
+    it("rejects an unexpected single-item series body instead of rewriting the title", async () => {
+      const db = makeDb();
+      const src = insertSource(db, "sonarr", url, "good-key");
+      await syncSource(db, src);
+      const episodeRow = db.prepare("SELECT id, title FROM media_files WHERE external_id = '11'").get() as {
+        id: number;
+        title: string;
+      };
+      badShape = "oneSeries";
+      await expect(syncOneItem(db, src, { id: episodeRow.id, externalId: "11" })).rejects.toThrow(
+        /unexpected|numeric id/
+      );
+      expect(db.prepare("SELECT title FROM media_files WHERE id = ?").get(episodeRow.id)).toMatchObject({
+        title: "Beta Show"
+      });
+    });
+
+    it("rejects an unexpected single-item body instead of parking the row as missing", async () => {
+      const db = makeDb();
+      const src = insertSource(db, "radarr", url, "good-key");
+      await syncSource(db, src);
+      db.prepare("UPDATE media_files SET status = 'healthy' WHERE id = 1").run();
+
+      badShape = "oneMovie";
+      await expect(syncOneItem(db, src, { id: 1, externalId: "1" })).rejects.toThrow(/unexpected/i);
+      expect(db.prepare("SELECT path, status FROM media_files WHERE id = 1").get()).toMatchObject({
+        path: "/movies/alpha.mkv",
+        status: "healthy"
+      });
     });
   });
 });
