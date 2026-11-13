@@ -1,6 +1,6 @@
 # Checkarr codebase map
 
-Verified against `ec361bd` (2026-11-12). pnpm monorepo: a Fastify/TypeScript API on Node's built-in `node:sqlite` (`apps/server`), a React 19 + Vite + Tailwind UI (`apps/web`), and plain-Node desktop/tray launchers (`scripts/`). Start at `apps/server/src/index.ts`; the abstraction to learn first is the `ScanManager` in `apps/server/src/services/scanner.ts`.
+Verified against `7824385` (2026-11-12). pnpm monorepo: a Fastify/TypeScript API on Node's built-in `node:sqlite` (`apps/server`), a React 19 + Vite + Tailwind UI (`apps/web`), and plain-Node desktop/tray launchers (`scripts/`). Start at `apps/server/src/index.ts`; the abstraction to learn first is the `ScanManager` in `apps/server/src/services/scanner.ts`.
 
 Maintenance: after adding, moving, or deleting a source file, update the File index and bump `Verified against` to the commit you checked.
 
@@ -8,7 +8,7 @@ Maintenance: after adding, moving, or deleting a source file, update the File in
 
 - Locally hosted media integrity checker for Radarr/Sonarr. It syncs the \*arr library into SQLite, decodes every file with ffmpeg (start, middle, end), and flags corrupt/suspect/missing/unreachable files. Optional Delete & re-search and Re-search missing queue replacements at the \*arr.
 - Server entry: `apps/server/src/index.ts` opens the DB, resumes interrupted scans, builds Fastify via `apps/server/src/app.ts`, and listens on `127.0.0.1:5656`. It serves the built UI from `apps/web/dist` plus `/api` from `apps/server/src/routes.ts`.
-- Core abstractions: `ScanManager` (`apps/server/src/services/scanner.ts:77`) owns run lifecycle, worker concurrency, cancellation and progress. `checkMediaFile` (`apps/server/src/services/checker.ts:130`) turns one file into a verdict. `syncSource` (`apps/server/src/services/sync.ts:308`) makes the DB mirror the \*arr.
+- Core abstractions: `ScanManager` (`apps/server/src/services/scanner.ts:77`) owns run lifecycle, worker concurrency, cancellation and progress. `checkMediaFile` (`apps/server/src/services/checker.ts:130`) turns one file into a verdict. `syncSource` (`apps/server/src/services/sync.ts:318`) makes the DB mirror the \*arr.
 - Derived dirs: `apps/server/dist` and `apps/web/dist` are build output; `data/` is gitignored runtime state (DB, logs, sample media); coverage output is generated.
 - Domain docs: none. There is no CONTEXT.md, GLOSSARY.md or ADR directory. `README.md` is the behaviour spec; `docs/audits/` is a historical audit.
 - Errors: throw `ApiError` (`apps/server/src/lib/api-error.ts:1`); the handler registered in `apps/server/src/routes.ts` maps it to an HTTP status.
@@ -37,7 +37,7 @@ Maintenance: after adding, moving, or deleting a source file, update the File in
 | Per-file check (stat, probe, decode)            | `apps/server/src/services/checker.ts:130`                                                                      |
 | ffmpeg resolution and PATH fallback             | `apps/server/src/services/ffmpeg.ts:116`, `apps/server/src/services/ffmpeg.ts:87`                              |
 | Verdict classification                          | `apps/server/src/lib/classify.ts:25`, `apps/server/src/lib/classify.ts:46`                                     |
-| \*arr HTTP client and sync                      | `apps/server/src/services/sync.ts:67`, `apps/server/src/services/sync.ts:308`                                  |
+| \*arr HTTP client and sync                      | `apps/server/src/services/sync.ts:77`, `apps/server/src/services/sync.ts:318`                                  |
 | Purge, re-search missing                        | `apps/server/src/services/purge.ts:222`, `apps/server/src/services/research.ts:67`                             |
 | Settings, path mappings                         | `apps/server/src/settings.ts:27`, `apps/server/src/lib/paths.ts:16`                                            |
 | Env, paths, port, bind host                     | `apps/server/src/config.ts`                                                                                    |
@@ -55,9 +55,9 @@ Maintenance: after adding, moving, or deleting a source file, update the File in
 
 **Change what counts as corrupt or suspect.** Read `apps/server/src/lib/classify.ts:25` (decode rules), `apps/server/src/lib/classify.ts:46` (probe rules) and `apps/server/src/services/checker.ts:130` (step order and thresholds). Test `pnpm -F @checkarr/server exec vitest run test/classify.test.ts` and, for real decoding, `apps/server/test/checker.integration.test.ts`.
 
-**Add a file status or scan scope.** Update every copy: `apps/server/src/services/checker.ts:14`, `apps/server/src/services/scanner.ts:10`, `apps/server/src/routes.ts:531`, the CHECK constraints in `apps/server/src/db.ts:7` plus a migration at `apps/server/src/db.ts:78`, then `apps/web/src/types.ts:1` and `apps/web/src/status.ts:17`. Test `apps/server/test/migrate.test.ts`, `apps/server/test/scanner.test.ts` and `apps/web/test/status.test.ts`.
+**Add a file status or scan scope.** Update every copy: `apps/server/src/services/checker.ts:14`, `apps/server/src/services/scanner.ts:10`, `apps/server/src/routes.ts:535`, the CHECK constraints in `apps/server/src/db.ts:7` plus a migration at `apps/server/src/db.ts:78`, then `apps/web/src/types.ts:1` and `apps/web/src/status.ts:17`. Test `apps/server/test/migrate.test.ts`, `apps/server/test/scanner.test.ts` and `apps/web/test/status.test.ts`.
 
-**Change library sync.** Read `apps/server/src/services/sync.ts:308` (path identity, relink, unfile, remove) and `apps/server/src/services/sync.ts:67` (HTTP/body handling). Test `pnpm -F @checkarr/server exec vitest run test/sync.test.ts`.
+**Change library sync.** Read `apps/server/src/services/sync.ts:318` (path identity, relink, unfile, remove) and `apps/server/src/services/sync.ts:77` (HTTP/body handling). Test `pnpm -F @checkarr/server exec vitest run test/sync.test.ts`.
 
 **Add a settings field.** Read `apps/server/src/settings.ts:27` (read/defaults) and `apps/server/src/settings.ts:55` (validation), the `settings` table in `apps/server/src/db.ts:7` plus a migration at `apps/server/src/db.ts:78`; wire the GET/PUT handlers near `apps/server/src/routes.ts:284`; add the control in `apps/web/src/components/SettingsPage.tsx:18`.
 
@@ -90,7 +90,7 @@ Maintenance: after adding, moving, or deleting a source file, update the File in
 
 - Node >= 23.4 is required: `apps/server/src/db.ts` imports `node:sqlite` (`DatabaseSync`), `package.json` declares `engines.node >=23.4`, and `.npmrc` sets `engine-strict=true`. CI uses Node 24.
 - Schema changes are hand-rolled in `apps/server/src/db.ts`: `SCHEMA` (`apps/server/src/db.ts:7`) creates fresh installs, `migrate()` (`apps/server/src/db.ts:78`) patches older ones with idempotent `PRAGMA table_info` checks and table rebuilds. There is no migrations directory. A new column needs a SCHEMA edit, a migration branch, and a `migrate.test.ts` case.
-- Status and scope vocabulary is duplicated: `apps/server/src/services/checker.ts:14`, `apps/server/src/services/scanner.ts:10`, `apps/server/src/routes.ts:531`, the DB CHECK constraints in `apps/server/src/db.ts:7`, `apps/web/src/types.ts:1`, `apps/web/src/status.ts:17`. Miss one and the app rejects or mislabels it. `healthy` is not a scan scope.
+- Status and scope vocabulary is duplicated: `apps/server/src/services/checker.ts:14`, `apps/server/src/services/scanner.ts:10`, `apps/server/src/routes.ts:535`, the DB CHECK constraints in `apps/server/src/db.ts:7`, `apps/web/src/types.ts:1`, `apps/web/src/status.ts:17`. Miss one and the app rejects or mislabels it. `healthy` is not a scan scope.
 - `pnpm dev:server` serves the built UI from `apps/web/dist` on `127.0.0.1:5656`; it does not run Vite. For UI HMR run `pnpm dev:web` too (Vite on 5173, proxies `/api` to 5656 via `apps/web/vite.config.ts`). A stale `apps/web/dist` hides UI edits.
 - The API has no authentication by design. Host and cross-site write checks are one `onRequest` hook in `apps/server/src/app.ts:90`, not per-route middleware. While broadcasting (`HOST=0.0.0.0`, Docker), Host checking is permissive unless `CHECKARR_ALLOWED_HOSTS` is set. Tests: `apps/server/test/host-guard.test.ts`, `apps/server/test/routes.test.ts`.
 - Every batch operation (scan, sync, bulk purge, re-search) takes the gate at `apps/server/src/routes.ts:137` and syncs the \*arr first. New routes that touch the library must use that gate; per-file routes sync their one item first.
@@ -115,6 +115,7 @@ Maintenance: after adding, moving, or deleting a source file, update the File in
 - `apps/server/src/services/sync.ts` - \*arr client, library sync, relink/remove rules.
 - `apps/server/src/services/purge.ts` - delete at the \*arr, queue replacements.
 - `apps/server/src/services/research.ts` - queue searches for missing items.
+- `apps/server/scripts/debug-check.ts` - throwaway encoder/checker probe for local debugging.
 
 `apps/web/src/`
 
