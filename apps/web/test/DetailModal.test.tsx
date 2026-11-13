@@ -66,8 +66,9 @@ describe("DetailModal stream player", () => {
     fileMock.mockImplementation(async () => ({ file: { ...file, probe: null } }));
     renderModal(file);
     expect(await screen.findByText(/waiting for the replacement download/i)).toBeInTheDocument();
-    // The old path still exists on the row until sync swaps the replacement
-    // in, but the bytes were deleted: a <video> would 404 and blame the codec.
+    // The row may still carry the old path until a later sync reports no file
+    // (which keeps it purged and NULLs the path), but the bytes were deleted:
+    // a <video> would 404 and blame the codec.
     expect(document.querySelector("video")).toBeNull();
     expect(screen.queryByText(/Browser playback failed/i)).not.toBeInTheDocument();
   });
@@ -93,6 +94,29 @@ describe("DetailModal stream player", () => {
     fileMock.mockImplementation(async () => ({ file: { ...file, probe: null } }));
     renderModal(file);
     expect((await screen.findAllByText(/No file at the \*arr/i)).length).toBeGreaterThan(0);
+    expect(document.querySelector("video")).toBeNull();
+  });
+
+  it("still explains the purged state after a later sync cleared the path", async () => {
+    // A sync that still sees no file at the *arr NULLs the path while keeping
+    // status 'purged' (sync.ts unfile rule). The message must not fall back to
+    // "has not been downloaded yet" - the file was deleted by the user.
+    const file = detail({ id: 5, status: "purged", path: null });
+    fileMock.mockImplementation(async () => ({ file: { ...file, probe: null } }));
+    renderModal(file);
+    expect(await screen.findByText(/waiting for the replacement download/i)).toBeInTheDocument();
+    expect(screen.queryByText(/has not been downloaded yet/i)).not.toBeInTheDocument();
+    expect(document.querySelector("video")).toBeNull();
+  });
+
+  it("does not point a player at a file that exists but is unreadable (permissions)", async () => {
+    // /api/files/:id/stream stats OK on an EACCES file and fails only when the
+    // stream opens, so the browser blames the codec. The checker already knows
+    // the file is unreachable: show that instead of a player.
+    const file = detail({ id: 6, status: "unreachable" });
+    fileMock.mockImplementation(async () => ({ file: { ...file, probe: null } }));
+    renderModal(file);
+    expect(await screen.findByText(/not readable \(permissions\)/i)).toBeInTheDocument();
     expect(document.querySelector("video")).toBeNull();
   });
 });

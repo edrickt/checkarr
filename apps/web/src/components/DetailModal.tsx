@@ -12,6 +12,12 @@ import { useToast } from "../ui/Toast";
 
 /** Why the detail modal has no player: the file is not on disk (or not yet). */
 function goneFileMessage(f: MediaFileDetail): string {
+  // Status first: a purged row can carry either the old path (until a sync
+  // reports no file) or a NULL path (a later sync still found no file), and
+  // both mean "deleted, awaiting the replacement", never "not downloaded yet".
+  if (f.status === "purged") {
+    return 'Deleted at the *arr via Delete & re-search - waiting for the replacement download. "Re-check now" syncs the item first and picks the replacement up once it lands.';
+  }
   if (f.path === null) {
     return (
       "No file at the *arr - this " +
@@ -19,8 +25,8 @@ function goneFileMessage(f: MediaFileDetail): string {
       ' is monitored but has not been downloaded yet. "Re-check now" syncs it from the *arr first, so a download that just finished is picked up immediately.'
     );
   }
-  if (f.status === "purged") {
-    return 'Deleted at the *arr via Delete & re-search - waiting for the replacement download. "Re-check now" syncs the item first and picks the replacement up once it lands.';
+  if (f.status === "unreachable") {
+    return 'The file exists but is not readable (permissions). Fix the file permissions, then use "Re-check now" to test it again.';
   }
   return "The *arr still references this file, but it is not on disk right now. A re-check re-tests it, and a sync picks up a replacement.";
 }
@@ -87,11 +93,14 @@ export default function DetailModal({ file, onClose }: { file: MediaFile; onClos
     if (v && isFinite(v.duration) && v.duration > 0) v.currentTime = v.duration / 2;
   };
 
-  // A player must not be pointed at a file that is known not to be on disk: it
-  // would 404 and blame the codec. 'purged' means Delete & re-search removed
-  // the bytes (the path stays on the row until sync swaps the replacement in);
-  // 'missing' means the checker could not find the file on disk.
-  const fileOnDisk = f.path !== null && f.status !== "purged" && f.status !== "missing";
+  // A player must not be pointed at a file that is known not to be playable: it
+  // would 404 (or fail the stream open) and blame the codec. 'purged' means
+  // Delete & re-search removed the bytes (the path may be the old one or NULL
+  // once a later sync reported no file); 'missing' means the checker could not
+  // find the file on disk; 'unreachable' means it exists but cannot be read
+  // (EACCES, which the stream endpoint hits only after the headers are sent).
+  const playable =
+    f.path !== null && f.status !== "purged" && f.status !== "missing" && f.status !== "unreachable";
 
   return (
     <Modal ariaLabel={f.title} onClose={onClose}>
@@ -107,7 +116,7 @@ export default function DetailModal({ file, onClose }: { file: MediaFile; onClos
         </Button>
       </div>
 
-      {!fileOnDisk ? (
+      {!playable ? (
         <div className="mb-3 border border-neutral-300 px-3 py-2 text-xs text-neutral-600">
           {goneFileMessage(f)}
         </div>
@@ -128,7 +137,7 @@ export default function DetailModal({ file, onClose }: { file: MediaFile; onClos
         />
       )}
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <Button onClick={jumpMiddle} disabled={!fileOnDisk}>
+        <Button onClick={jumpMiddle} disabled={!playable}>
           Jump to middle
         </Button>
         <Button onClick={() => recheck.mutate()} disabled={recheck.isPending}>
