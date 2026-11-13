@@ -10,6 +10,21 @@ import { useConfirm } from "../ui/ConfirmDialog";
 import { Modal } from "../ui/Modal";
 import { useToast } from "../ui/Toast";
 
+/** Why the detail modal has no player: the file is not on disk (or not yet). */
+function goneFileMessage(f: MediaFileDetail): string {
+  if (f.path === null) {
+    return (
+      "No file at the *arr - this " +
+      (f.kind === "movie" ? "movie" : "episode") +
+      ' is monitored but has not been downloaded yet. "Re-check now" syncs it from the *arr first, so a download that just finished is picked up immediately.'
+    );
+  }
+  if (f.status === "purged") {
+    return 'Deleted at the *arr via Delete & re-search - waiting for the replacement download. "Re-check now" syncs the item first and picks the replacement up once it lands.';
+  }
+  return "The *arr still references this file, but it is not on disk right now. A re-check re-tests it, and a sync picks up a replacement.";
+}
+
 export default function DetailModal({ file, onClose }: { file: MediaFile; onClose: () => void }) {
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -72,6 +87,12 @@ export default function DetailModal({ file, onClose }: { file: MediaFile; onClos
     if (v && isFinite(v.duration) && v.duration > 0) v.currentTime = v.duration / 2;
   };
 
+  // A player must not be pointed at a file that is known not to be on disk: it
+  // would 404 and blame the codec. 'purged' means Delete & re-search removed
+  // the bytes (the path stays on the row until sync swaps the replacement in);
+  // 'missing' means the checker could not find the file on disk.
+  const fileOnDisk = f.path !== null && f.status !== "purged" && f.status !== "missing";
+
   return (
     <Modal ariaLabel={f.title} onClose={onClose}>
       <div className="mb-3 flex items-start justify-between gap-4">
@@ -86,11 +107,9 @@ export default function DetailModal({ file, onClose }: { file: MediaFile; onClos
         </Button>
       </div>
 
-      {f.path === null ? (
+      {!fileOnDisk ? (
         <div className="mb-3 border border-neutral-300 px-3 py-2 text-xs text-neutral-600">
-          No file at the *arr - this {f.kind === "movie" ? "movie" : "episode"} is monitored but has not been
-          downloaded yet. "Re-check now" syncs it from the *arr first, so a download that just finished is
-          picked up immediately.
+          {goneFileMessage(f)}
         </div>
       ) : (
         <video
@@ -109,7 +128,7 @@ export default function DetailModal({ file, onClose }: { file: MediaFile; onClos
         />
       )}
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <Button onClick={jumpMiddle} disabled={f.path === null}>
+        <Button onClick={jumpMiddle} disabled={!fileOnDisk}>
           Jump to middle
         </Button>
         <Button onClick={() => recheck.mutate()} disabled={recheck.isPending}>

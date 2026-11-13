@@ -47,6 +47,11 @@ describe("fetchArr body handling", () => {
         res.end(JSON.stringify({ ok: true }));
         return;
       }
+      if (u.pathname === "/null-json") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end("null");
+        return;
+      }
       res.writeHead(404).end("{}");
     });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -59,19 +64,27 @@ describe("fetchArr body handling", () => {
     statusMode = "ok";
   });
 
-  it("returns null for a 204 with an empty body (real *arr DELETE behavior)", async () => {
-    expect(await fetchArr(url, "k", "/empty204", { method: "DELETE" })).toBeNull();
+  it("returns the not-found signal for a 204 with an empty body (real *arr DELETE behavior)", async () => {
+    expect(await fetchArr(url, "k", "/empty204", { method: "DELETE" })).toBeUndefined();
   });
 
   it("throws for a 200 GET with an empty body (it is not a 404)", async () => {
-    // null is the "the *arr does not have this item" signal. Returning it for
-    // an empty 2xx body let syncOneItem delete a tracked row (and its history)
-    // when an auth proxy or a truncated response answered 200 with no body.
+    // The undefined "the *arr does not have this item" signal used to be null
+    // for both a real 404 and an empty 2xx body, so syncOneItem deleted a
+    // tracked row (and its history) when an auth proxy or a truncated response
+    // answered 200 with no body.
     await expect(fetchArr(url, "k", "/empty200")).rejects.toThrow(/empty body/);
   });
 
-  it("still returns null for an empty 200 on DELETE (preserved delete semantics)", async () => {
-    expect(await fetchArr(url, "k", "/empty200", { method: "DELETE" })).toBeNull();
+  it("returns the not-found signal for an empty 200 on DELETE (preserved delete semantics)", async () => {
+    expect(await fetchArr(url, "k", "/empty200", { method: "DELETE" })).toBeUndefined();
+  });
+
+  it("returns a parsed JSON null body as-is, never as the not-found signal", async () => {
+    // JSON `null` is a wrong-shaped *arr response, not a 404. It must stay
+    // distinct from the undefined "item does not exist" signal so
+    // syncOneItem rejects it instead of deleting the tracked row.
+    expect(await fetchArr(url, "k", "/null-json")).toBeNull();
   });
 
   it("parses non-empty JSON", async () => {

@@ -40,12 +40,13 @@ function expectList<T>(value: unknown, what: string): T[] {
   return value as T[];
 }
 
-/** Same rule for an object body: null is the documented "not found" signal (a
- *  real HTTP 404, or an empty *arr DELETE); anything else that is not a plain
- *  object is an unexpected response and must never be read as absence. */
+/** Same rule for an object body: `undefined` is the documented "not found"
+ *  signal (a real HTTP 404, or an empty *arr DELETE); anything else that is not
+ *  a plain object - including a parsed JSON `null` - is an unexpected response
+ *  and must never be read as absence. */
 function expectObject(value: unknown, what: string): Record<string, unknown> | null {
-  if (value === null) return null;
-  if (typeof value !== "object" || Array.isArray(value))
+  if (value === undefined) return null;
+  if (value === null || typeof value !== "object" || Array.isArray(value))
     throw new Error(what + " returned an unexpected response");
   return value as Record<string, unknown>;
 }
@@ -56,14 +57,23 @@ function expectEntry<T>(value: unknown, what: string): T {
   return value as T;
 }
 
-/** The *arr API identifies every library item by a numeric id; a body without
- *  one (a proxy page object, an error envelope, an API-version change) is an
- *  unexpected response, not an item to track under the id "undefined". */
+/**
+ * The *arr API identifies every library item by a numeric id; a body without
+ * one (a proxy page object, an error envelope, an API-version change) is an
+ * unexpected response, not an item to track under the id "undefined".
+ */
 function requireNumericId(value: { id?: unknown }, what: string): void {
   if (typeof value.id !== "number" || !Number.isInteger(value.id))
     throw new Error(what + " returned an entry without a numeric id");
 }
 
+/**
+ * `fetchArr` resolves to `undefined` for the one documented "the *arr does not
+ * have this" signal (a real 404 when `notFoundOk` is set, or the empty body of
+ * an *arr DELETE). JSON `null` is *not* that signal: it is a wrong-shaped 200
+ * body and must stay distinguishable, or a proxy answering `null` would make
+ * `syncOneItem` delete the tracked row.
+ */
 export async function fetchArr(
   baseUrl: string,
   apiKey: string,
@@ -92,14 +102,14 @@ export async function fetchArr(
     throw new Error("Cannot reach " + root + " : " + String((err as Error)?.message ?? err), { cause: err });
   }
   if (res.status === 401) throw new Error("Unauthorized (401) - check the API key");
-  if (res.status === 404 && init?.notFoundOk) return null;
+  if (res.status === 404 && init?.notFoundOk) return undefined;
   if (!res.ok) throw new Error(method + " " + apiPath + " failed: HTTP " + res.status + " " + res.statusText);
   if (text.trim().length === 0) {
     // *arr DELETE endpoints answer 204 (or 200) with an empty body, which is
     // success. An empty body on any other method is a broken response - an
     // auth proxy, a truncated transfer, a wrong URL - and must not be mistaken
-    // for the null "item does not exist" signal.
-    if (method === "DELETE") return null;
+    // for the "item does not exist" signal.
+    if (method === "DELETE") return undefined;
     throw new Error(method + " " + apiPath + " returned HTTP " + res.status + " with an empty body");
   }
   try {
@@ -313,13 +323,23 @@ export async function syncSource(db: DB, source: SourceCore): Promise<SyncResult
   const kind = source.type === "radarr" ? "movie" : "episode";
   const now = new Date().toISOString();
 
-  const existsStmt = db.prepare("SELECT id FROM media_files WHERE source_id = ? AND path = ?");
+  const existsStmt = db.prepare("SELECT id, status FROM media_files WHERE source_id = ? AND path = ?");
   const upsertStmt = db.prepare(
     "INSERT INTO media_files (source_id, kind, external_id, title, subtitle, path, size_bytes, quality)" +
       " VALUES (?, ?, ?, ?, ?, ?, ?, ?)" +
       " ON CONFLICT(source_id, path) DO UPDATE SET" +
       " external_id = excluded.external_id, title = excluded.title, subtitle = excluded.subtitle," +
       " size_bytes = excluded.size_bytes, quality = excluded.quality, updated_at = excluded.updated_at"
+  );
+  // A purged row's file was deleted by Delete & re-search, so a file the *arr
+  // now reports at that same path is a replacement download (a re-grab of the
+  // same release keeps the filename, especially with Sonarr's default naming).
+  // Its verdict describes bytes that no longer exist: reset it like a relink.
+  const resetPurgedStmt = db.prepare(
+    "UPDATE media_files SET external_id = ?, title = ?, subtitle = ?, size_bytes = ?, quality = ?," +
+      " status = 'unchecked', error_detail = NULL, duration_s = NULL, container = NULL, video_codec = NULL," +
+      " audio_codec = NULL, probe_json = NULL, checked_at = NULL, updated_at = ?" +
+      " WHERE id = ? AND source_id = ? AND status = 'purged'"
   );
   // The *arr reports a movie/episode we already track under a different path:
   // a replacement download (Delete & re-search) lands in the same folder with
@@ -381,10 +401,24 @@ export async function syncSource(db: DB, source: SourceCore): Promise<SyncResult
         insSeen.run(e.externalId);
         continue;
       }
-      const existing = existsStmt.get(source.id, e.path);
+      const existing = existsStmt.get(source.id, e.path) as { id: number; status: string } | undefined;
       if (existing) {
-        upsertStmt.run(source.id, kind, e.externalId, e.title, e.subtitle, e.path, e.sizeBytes, e.quality);
-        updated++;
+        if (existing.status === "purged") {
+          resetPurgedStmt.run(
+            e.externalId,
+            e.title,
+            e.subtitle,
+            e.sizeBytes,
+            e.quality,
+            now,
+            existing.id,
+            source.id
+          );
+          relinked++;
+        } else {
+          upsertStmt.run(source.id, kind, e.externalId, e.title, e.subtitle, e.path, e.sizeBytes, e.quality);
+          updated++;
+        }
       } else {
         const twin = byExternalStmt.get(source.id, kind, e.externalId) as { id: number } | undefined;
         if (twin) {
@@ -504,8 +538,8 @@ export async function syncOneItem(
   }
 
   const kind = source.type === "radarr" ? "movie" : "episode";
-  const currentPath = db.prepare("SELECT path FROM media_files WHERE id = ?").get(row.id) as
-    { path: string | null } | undefined;
+  const currentPath = db.prepare("SELECT path, status FROM media_files WHERE id = ?").get(row.id) as
+    { path: string | null; status: string } | undefined;
 
   if (entry === null) {
     // The *arr no longer tracks this item: drop the row, matching the full
@@ -535,6 +569,29 @@ export async function syncOneItem(
   }
 
   if (currentPath.path === entry.path) {
+    // A purged row with a file back at the same path is a same-path replacement
+    // download: the old bytes are gone, so reset the row like a relink instead
+    // of keeping a stale "purged" verdict that no scan of 'unchecked' sees.
+    if (currentPath.status === "purged") {
+      db.prepare(
+        "UPDATE media_files SET external_id = ?, title = ?, subtitle = ?, size_bytes = ?, quality = ?," +
+          " status = 'unchecked', error_detail = NULL, duration_s = NULL, container = NULL, video_codec = NULL," +
+          " audio_codec = NULL, probe_json = NULL, checked_at = NULL, updated_at = ?" +
+          " WHERE id = ? AND source_id = ? AND kind = ? AND external_id = ? AND status = 'purged'"
+      ).run(
+        entry.externalId,
+        entry.title,
+        entry.subtitle,
+        entry.sizeBytes,
+        entry.quality,
+        now,
+        row.id,
+        source.id,
+        kind,
+        row.externalId
+      );
+      return { found: true, changed: true };
+    }
     // Same file as before: refresh metadata, keep every verdict.
     db.prepare(
       "UPDATE media_files SET title = ?, subtitle = ?, size_bytes = ?, quality = ?, updated_at = ? WHERE id = ?"

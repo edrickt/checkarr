@@ -479,8 +479,12 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager, se
 
   app.post("/api/purge", async (req) => {
     const b = (req.body ?? {}) as Record<string, unknown>;
-    const status = typeof b.status === "string" && b.status !== "" ? b.status : "corrupt";
-    if (!PURGE_STATUSES.includes(status))
+    // A missing status may keep the historical "corrupt" default, but a value
+    // that is present must be a documented status: a wrong-typed value (an
+    // array, a number, null) must be a 400 instead of silently falling back to
+    // the destructive default.
+    const status = b.status === undefined ? "corrupt" : b.status;
+    if (typeof status !== "string" || !PURGE_STATUSES.includes(status))
       throw new ApiError(400, "status must be one of: " + PURGE_STATUSES.join(", "));
     // "all"/"healthy" delete good media, not just broken files: demand an
     // explicit opt-in so a stray or CSRF'd request cannot wipe a library.
@@ -680,7 +684,11 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager, se
       size: "mf.size_bytes",
       id: "mf.id"
     };
-    const sortCol = sortMap[q.sort ?? "id"] ?? sortMap.id;
+    // Own-property lookup: a caller-supplied "sort=__proto__" (or any other
+    // inherited name) must fall back to the default instead of concatenating
+    // Object.prototype into the ORDER BY (an unhandled 500).
+    const sortKey = q.sort ?? "id";
+    const sortCol = Object.hasOwn(sortMap, sortKey) ? sortMap[sortKey] : sortMap.id;
     const dir = q.dir === "asc" ? "ASC" : "DESC";
     const total = Number(
       (db.prepare("SELECT COUNT(*) AS n FROM media_files mf" + whereSql).get(...params) as { n: number }).n

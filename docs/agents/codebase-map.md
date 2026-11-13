@@ -1,6 +1,6 @@
 # Checkarr codebase map
 
-Verified against `d7c9acd` (2026-11-12). pnpm monorepo: a Fastify/TypeScript API on Node's built-in `node:sqlite` (`apps/server`), a React 19 + Vite + Tailwind UI (`apps/web`), and plain-Node desktop/tray launchers (`scripts/`). Start at `apps/server/src/index.ts`; the abstraction to learn first is the `ScanManager` in `apps/server/src/services/scanner.ts`.
+Verified against `ec361bd` (2026-11-12). pnpm monorepo: a Fastify/TypeScript API on Node's built-in `node:sqlite` (`apps/server`), a React 19 + Vite + Tailwind UI (`apps/web`), and plain-Node desktop/tray launchers (`scripts/`). Start at `apps/server/src/index.ts`; the abstraction to learn first is the `ScanManager` in `apps/server/src/services/scanner.ts`.
 
 Maintenance: after adding, moving, or deleting a source file, update the File index and bump `Verified against` to the commit you checked.
 
@@ -127,15 +127,20 @@ Maintenance: after adding, moving, or deleting a source file, update the File in
 - `apps/web/src/status.ts` - canonical status order, labels, dot colors, scopes.
 - `apps/web/src/types.ts` - shared domain and API types.
 - `apps/web/src/utils.ts` - byte, duration and date formatting.
+- `apps/web/src/index.css` - Tailwind entry and base styles.
 - `apps/web/src/components/Dashboard.tsx` - status cards and scan/purge/research actions.
 - `apps/web/src/components/LibraryTable.tsx` - filter/sort/page table and row actions.
 - `apps/web/src/components/DetailModal.tsx` - file detail, stream player, recheck.
 - `apps/web/src/components/SettingsPage.tsx` - sources, binaries, mappings, broadcasting.
 - `apps/web/src/components/StatusBadge.tsx` - status label and dot.
+- `apps/web/src/ui/Button.tsx` - button primitive with variant and size.
+- `apps/web/src/ui/controls.tsx` - Input/Select form control primitives.
+- `apps/web/src/ui/ErrorBanner.tsx` - inline query-error banner.
 - `apps/web/src/ui/Modal.tsx` - focus-trapping modal with nested-Escape stack.
 - `apps/web/src/ui/ConfirmDialog.tsx` - promise-based confirm provider.
 - `apps/web/src/ui/Menu.tsx` - portal dropdown menu.
 - `apps/web/src/ui/Toast.tsx` - success/error toast provider.
+- `apps/web/src/ui/Toggle.tsx` - accessibly labelled switch.
 
 `scripts/`
 

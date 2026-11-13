@@ -113,10 +113,12 @@ let badShape:
   | "episodes"
   | "oneMovie"
   | "emptyOneMovie"
+  | "nullOneMovie"
   | "emptyMovies"
   | "movieEntry"
   | "episodeEntry"
   | "oneSeries"
+  | "nullOneSeries"
   | null = null;
 
 describe("sync", () => {
@@ -166,6 +168,7 @@ describe("sync", () => {
       const oneMovie = /^\/api\/v3\/movie\/(\d+)$/.exec(u.pathname);
       if (oneMovie) {
         if (badShape === "oneMovie") return json([{ id: Number(oneMovie[1]) }]);
+        if (badShape === "nullOneMovie") return json(null);
         if (badShape === "emptyOneMovie") {
           res.writeHead(200);
           res.end();
@@ -177,6 +180,7 @@ describe("sync", () => {
       const oneSeries = /^\/api\/v3\/series\/(\d+)$/.exec(u.pathname);
       if (oneSeries) {
         if (badShape === "oneSeries") return json({});
+        if (badShape === "nullOneSeries") return json(null);
         const s = SERIES.find((sv) => String(sv.id) === oneSeries[1]);
         return s ? json(s) : res.writeHead(404).end("{}");
       }
@@ -300,6 +304,34 @@ describe("sync", () => {
     } finally {
       MOVIES[0].movieFile = original;
     }
+  });
+
+  it("relinks a purged row when the replacement lands at the SAME path", async () => {
+    const db = makeDb();
+    const src = insertSource(db, "radarr", url, "good-key");
+    await syncSource(db, src);
+    // A replacement download can keep the old filename (Sonarr's default
+    // naming omits the release group, and a re-grab of the same quality lands
+    // at the same path). The purged row's verdict describes bytes that were
+    // deleted, so the file the *arr reports now is new and must be checked.
+    db.prepare(
+      "UPDATE media_files SET status = 'purged', error_detail = 'old verdict', checked_at = '2026-01-01T00:00:00.000Z', probe_json = '{}'"
+    ).run();
+    const r = await syncSource(db, src);
+    expect(r.added).toBe(0);
+    expect(r.relinked).toBe(1);
+    expect(r.updated).toBe(0);
+    expect(r.removed).toBe(0);
+    const row = db
+      .prepare("SELECT id, path, status, size_bytes, error_detail, checked_at, probe_json FROM media_files")
+      .get() as Record<string, unknown>;
+    expect(row.id).toBe(1);
+    expect(row.path).toBe("/movies/alpha.mkv");
+    expect(row.status).toBe("unchecked");
+    expect(row.size_bytes).toBe(123); // refreshed from the replacement
+    expect(row.error_detail).toBeNull();
+    expect(row.checked_at).toBeNull();
+    expect(row.probe_json).toBeNull();
   });
 
   it("relinks episode rows too (sonarr)", async () => {
@@ -590,6 +622,24 @@ describe("sync", () => {
       }
     });
 
+    it("relinks a purged row when the *arr reports a file at the same path", async () => {
+      const db = makeDb();
+      const src = insertSource(db, "radarr", url, "good-key");
+      await syncSource(db, src);
+      db.prepare(
+        "UPDATE media_files SET status = 'purged', error_detail = 'old verdict', checked_at = '2026-01-01T00:00:00.000Z' WHERE id = 1"
+      ).run();
+      const r = await syncOneItem(db, src, { id: 1, externalId: "1" });
+      expect(r).toEqual({ found: true, changed: true });
+      expect(rowById(db, 1)).toMatchObject({
+        path: "/movies/alpha.mkv",
+        status: "unchecked",
+        size_bytes: 123,
+        error_detail: null,
+        checked_at: null
+      });
+    });
+
     it("removes the row when the *arr no longer knows the item", async () => {
       const db = makeDb();
       const src = insertSource(db, "radarr", url, "good-key");
@@ -779,6 +829,42 @@ describe("sync", () => {
       await expect(syncOneItem(db, src, { id: 1, externalId: "1" })).rejects.toThrow(/unexpected/i);
       expect(db.prepare("SELECT path, status FROM media_files WHERE id = 1").get()).toMatchObject({
         path: "/movies/alpha.mkv",
+        status: "healthy"
+      });
+    });
+
+    it("rejects a 200 JSON null single movie body instead of deleting the row", async () => {
+      // JSON `null` parses successfully but is not the documented "item does
+      // not exist" signal (a real 404). Only a 404 may remove a tracked row;
+      // a null body used to delete it along with its verdicts.
+      const db = makeDb();
+      const src = insertSource(db, "radarr", url, "good-key");
+      await syncSource(db, src);
+      db.prepare("UPDATE media_files SET status = 'healthy' WHERE id = 1").run();
+
+      badShape = "nullOneMovie";
+      await expect(syncOneItem(db, src, { id: 1, externalId: "1" })).rejects.toThrow(/unexpected/i);
+      expect(db.prepare("SELECT path, status FROM media_files WHERE id = 1").get()).toMatchObject({
+        path: "/movies/alpha.mkv",
+        status: "healthy"
+      });
+    });
+
+    it("rejects a 200 JSON null series body instead of removing the episode row", async () => {
+      const db = makeDb();
+      const src = insertSource(db, "sonarr", url, "good-key");
+      await syncSource(db, src);
+      const episodeRow = db.prepare("SELECT id FROM media_files WHERE external_id = '11'").get() as {
+        id: number;
+      };
+      db.prepare("UPDATE media_files SET status = 'healthy' WHERE id = ?").run(episodeRow.id);
+
+      badShape = "nullOneSeries";
+      await expect(syncOneItem(db, src, { id: episodeRow.id, externalId: "11" })).rejects.toThrow(
+        /unexpected/i
+      );
+      expect(db.prepare("SELECT id, status FROM media_files WHERE id = ?").get(episodeRow.id)).toMatchObject({
+        id: episodeRow.id,
         status: "healthy"
       });
     });

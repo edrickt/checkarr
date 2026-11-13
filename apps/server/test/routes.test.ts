@@ -343,6 +343,26 @@ describe("validation", () => {
     }
   });
 
+  it("falls back to the default sort for inherited-property names instead of a 500", async () => {
+    // The sort whitelist is a plain object, so sortMap["__proto__"] returned
+    // Object.prototype and was concatenated into the ORDER BY: a datatype /
+    // syntax error surfaced as an unhandled 500 for malformed input.
+    for (const sort of ["__proto__", "constructor", "toString", "hasOwnProperty"]) {
+      const r = await app.inject({ method: "GET", url: "/api/files?sort=" + sort });
+      expect(r.statusCode).toBe(200);
+      expect(Array.isArray(r.json().items)).toBe(true);
+    }
+  });
+
+  it("rejects a malformed purge status instead of defaulting to deleting corrupt files", async () => {
+    // Only a missing status may default to "corrupt". A wrong-typed value used
+    // to fall through to that destructive default instead of a 400.
+    for (const status of [["all"], 123, true, null, ""]) {
+      const r = await app.inject({ method: "POST", url: "/api/purge", payload: { status } });
+      expect(r.statusCode).toBe(400);
+    }
+  });
+
   it("parses enabled strictly (the string 'false' must disable, not enable)", async () => {
     const off = await app.inject({ method: "PUT", url: "/api/sources/1", payload: { enabled: "false" } });
     expect(off.statusCode).toBe(200);
