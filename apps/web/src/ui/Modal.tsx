@@ -83,7 +83,7 @@ export function Modal({
         tabIndex={-1}
         onMouseDown={(e) => e.stopPropagation()}
         className={
-          "max-h-[90vh] w-full overflow-y-auto border border-neutral-200 bg-white p-4 focus:outline-none " +
+          "max-h-[90vh] w-full overflow-y-auto border border-neutral-200 bg-white p-5 shadow-[0_24px_64px_-24px_rgba(0,0,0,0.4)] focus:outline-none " +
           panelClassName
         }
       >

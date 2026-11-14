@@ -35,10 +35,10 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
     <ConfirmContext.Provider value={confirm}>
       {children}
       {request && (
-        <Modal ariaLabel={request.title} onClose={() => settle(false)} panelClassName="max-w-lg">
-          <h2 className="text-base font-semibold">{request.title}</h2>
-          <div className="mt-2 whitespace-pre-wrap text-sm text-neutral-600">{request.body}</div>
-          <div className="mt-4 flex justify-end gap-2">
+        <Modal ariaLabel={request.title} onClose={() => settle(false)} panelClassName="max-w-md">
+          <h2 className="text-base font-semibold text-neutral-900">{request.title}</h2>
+          <div className="mt-2 whitespace-pre-wrap text-sm leading-6 text-neutral-600">{request.body}</div>
+          <div className="mt-5 flex justify-end gap-2">
             <Button onClick={() => settle(false)}>Cancel</Button>
             <Button variant={request.danger ? "danger" : "primary"} onClick={() => settle(true)}>
               {request.confirmLabel ?? "Confirm"}

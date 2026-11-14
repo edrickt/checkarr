@@ -11,6 +11,9 @@ export type ScanScope = Exclude<FileStatus, "healthy"> | "all";
  */
 export type PurgeStatus = "corrupt" | "suspect" | "unreachable" | "all";
 
+/** Statuses Re-search can target: rows waiting on the *arr for a download. */
+export type ResearchStatus = "missing" | "purged";
+
 export interface MediaFile {
   id: number;
   sourceId: number;
@@ -168,6 +171,16 @@ export interface ResearchResponse {
   total: number;
   /** The library sync that ran before the re-search. */
   synced: BatchSyncSummary[];
+}
+
+/** Result of queueing a search for one tracked item at its *arr. */
+export interface FileResearchResponse {
+  id: number;
+  name: string;
+  type: string;
+  /** 1 when a search command was queued, 0 when the *arr item could not be resolved. */
+  searched: number;
+  errors: string[];
 }
 
 export interface FileQuery {

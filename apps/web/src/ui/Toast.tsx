@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from "react";
+import { CloseIcon } from "./icons";
 
 interface Toast {
   id: number;
@@ -49,21 +50,32 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             key={t.id}
             role={t.kind === "error" ? "alert" : "status"}
             className={
-              "border bg-white px-3 py-2 text-sm shadow-md " +
-              (t.kind === "error" ? "border-red-300 text-red-700" : "border-neutral-200 text-neutral-700")
+              "flex items-start gap-3 border border-neutral-200 bg-white px-3 py-2.5 text-sm " +
+              "shadow-[0_12px_32px_-16px_rgba(0,0,0,0.35)]"
             }
           >
-            <div className="flex items-start justify-between gap-2">
-              <span className="whitespace-pre-wrap">{t.text}</span>
-              <button
-                type="button"
-                onClick={() => dismiss(t.id)}
-                aria-label="Dismiss notification"
-                className="shrink-0 text-neutral-400 hover:text-neutral-900"
-              >
-                &times;
-              </button>
-            </div>
+            <span
+              aria-hidden="true"
+              className={
+                "mt-1.5 inline-block h-1.5 w-1.5 shrink-0 rounded-full " +
+                (t.kind === "error" ? "bg-red-600" : "bg-emerald-600")
+              }
+            />
+            <span
+              className={
+                "flex-1 whitespace-pre-wrap " + (t.kind === "error" ? "text-red-700" : "text-neutral-800")
+              }
+            >
+              {t.text}
+            </span>
+            <button
+              type="button"
+              onClick={() => dismiss(t.id)}
+              aria-label="Dismiss notification"
+              className="-mr-1 -mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900"
+            >
+              <CloseIcon width={12} height={12} />
+            </button>
           </div>
         ))}
       </div>

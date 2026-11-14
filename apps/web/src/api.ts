@@ -1,10 +1,12 @@
 import type {
   FileListResponse,
   FileQuery,
+  FileResearchResponse,
   FileStatus,
   PurgeResponse,
   PurgeStatus,
   ResearchResponse,
+  ResearchStatus,
   ScanRun,
   ScanScope,
   Settings,
@@ -67,8 +69,14 @@ export const api = {
     return send<PurgeResponse>("POST", "/api/purge", body);
   },
   purgeFile: (id: number) => send<PurgeResponse>("POST", "/api/files/" + id + "/purge", {}),
-  researchMissing: (sourceId?: number) =>
-    send<ResearchResponse>("POST", "/api/research", sourceId !== undefined ? { sourceId } : {}),
+  researchMissing: (sourceId?: number, status?: ResearchStatus) => {
+    const body: Record<string, unknown> = {};
+    if (sourceId !== undefined) body.sourceId = sourceId;
+    if (status !== undefined) body.status = status;
+    return send<ResearchResponse>("POST", "/api/research", body);
+  },
+  /** Queue a replacement search for one tracked item at its *arr. */
+  researchFile: (id: number) => send<FileResearchResponse>("POST", "/api/files/" + id + "/research", {}),
   startScan: (scope: ScanScope, sourceId?: number) =>
     send<{ runId: number }>("POST", "/api/scan", sourceId !== undefined ? { scope, sourceId } : { scope }),
   cancelScan: () => send<{ ok: boolean }>("POST", "/api/scan/cancel"),

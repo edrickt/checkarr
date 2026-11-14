@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import DetailModal from "../src/components/DetailModal";
 import type { MediaFile } from "../src/types";
 import { ConfirmProvider } from "../src/ui/ConfirmDialog";
 import { ToastProvider } from "../src/ui/Toast";
 
 const fileMock = vi.fn();
+const researchMock = vi.fn();
 vi.mock("../src/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/api")>();
   return {
@@ -16,7 +18,8 @@ vi.mock("../src/api", async (importOriginal) => {
       file: (...args: unknown[]) => fileMock(...args),
       streamUrl: (id: number) => "/api/files/" + id + "/stream",
       recheck: vi.fn(),
-      purgeFile: vi.fn()
+      purgeFile: vi.fn(),
+      researchFile: (...args: unknown[]) => researchMock(...args)
     }
   };
 });
@@ -118,5 +121,50 @@ describe("DetailModal stream player", () => {
     renderModal(file);
     expect(await screen.findByText(/not readable \(permissions\)/i)).toBeInTheDocument();
     expect(document.querySelector("video")).toBeNull();
+  });
+});
+
+describe("DetailModal actions", () => {
+  it("queues a search for a missing row from the actions row", async () => {
+    const user = userEvent.setup();
+    const file = detail({ id: 7, status: "missing" });
+    fileMock.mockImplementation(async () => ({ file: { ...file, probe: null } }));
+    researchMock.mockResolvedValue({
+      id: 7,
+      name: "Main Radarr",
+      type: "radarr",
+      searched: 1,
+      errors: []
+    });
+    renderModal(file);
+    await screen.findByText("A Movie");
+
+    await user.click(screen.getByRole("button", { name: "Search now" }));
+
+    expect(researchMock).toHaveBeenCalledWith(7);
+    expect(await screen.findByText("Queued a search at Main Radarr for 'A Movie'.")).toBeInTheDocument();
+  });
+
+  it("offers Search now but no delete or player for a purged row with its old path", async () => {
+    const file = detail({ id: 8, status: "purged" });
+    fileMock.mockImplementation(async () => ({ file: { ...file, probe: null } }));
+    renderModal(file);
+    await screen.findByText("A Movie");
+
+    expect(screen.getByRole("button", { name: "Search now" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete & re-search" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Jump to middle" })).not.toBeInTheDocument();
+  });
+
+  it("offers delete and the player, but no search, for a file on disk", async () => {
+    const file = detail({ id: 9, status: "healthy" });
+    fileMock.mockImplementation(async () => ({ file: { ...file, probe: null } }));
+    renderModal(file);
+    await screen.findByText("A Movie");
+
+    expect(screen.queryByRole("button", { name: "Search now" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete & re-search" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Jump to middle" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Close" })).toBeInTheDocument();
   });
 });

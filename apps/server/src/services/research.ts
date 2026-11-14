@@ -17,6 +17,16 @@ export interface ResearchResult {
   total: number;
 }
 
+/** Rows waiting on a download: never fetched ('missing') or deleted ('purged'). */
+export type ResearchStatus = "missing" | "purged";
+
+export interface ResearchFilter {
+  /** Restrict to one *arr source (the dashboard's server picker). */
+  sourceId?: number;
+  /** Which waiting status to search for; defaults to "missing". */
+  status?: ResearchStatus;
+}
+
 interface MissingRow {
   id: number;
   external_id: string;
@@ -58,18 +68,20 @@ async function chunkedSearch(
 }
 
 /**
- * Queue interactive searches at the *arr for every 'missing' item (monitored
- * at the *arr with no file) among enabled sources, optionally scoped to one.
- * A sync should have run first (the route does), so every row still points at
- * a live *arr item; unknown ids are simply skipped by the *arr. Rows are left
- * 'missing' until a download lands and the next sync relinks them.
+ * Queue interactive searches at the *arr for items waiting on a download
+ * ('missing' rows by default, or 'purged' rows waiting for their replacement)
+ * among enabled sources, optionally scoped to one. A sync should have run
+ * first (the route does), so every row still points at a live *arr item;
+ * unknown ids are simply skipped by the *arr. Rows keep their status until a
+ * download lands and the next sync relinks them.
  */
-export async function researchMissing(db: DB, filter: { sourceId?: number } = {}): Promise<ResearchResult> {
+export async function researchMissing(db: DB, filter: ResearchFilter = {}): Promise<ResearchResult> {
+  const status = filter.status ?? "missing";
   let sql =
     "SELECT mf.id, mf.external_id, s.id AS source_id, s.type, s.name, s.base_url, s.api_key" +
     " FROM media_files mf JOIN sources s ON s.id = mf.source_id" +
-    " WHERE s.enabled = 1 AND mf.status = 'missing'";
-  const params: (string | number)[] = [];
+    " WHERE s.enabled = 1 AND mf.status = ?";
+  const params: (string | number)[] = [status];
   if (filter.sourceId !== undefined) {
     sql += " AND mf.source_id = ?";
     params.push(filter.sourceId);

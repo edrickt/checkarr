@@ -19,7 +19,7 @@ A locally hosted media integrity checker for Radarr and Sonarr libraries. It act
 - **Really plays your media.** Every file is decoded with ffmpeg at the start, middle, and end, not just stat'ed.
 - **The \*arr is the source of truth.** Every monitored movie/episode gets a row, downloaded or not. Not-yet-downloaded items show as missing instead of being invisible.
 - **See why it failed.** Per-file ffmpeg findings show exactly what the decoder reported.
-- **Fix it in one click.** Delete & re-search (single file or bulk) and Re-search missing queue replacements at the \*arr.
+- **Fix it in one click.** Delete & re-search (single file or bulk), and Search now for missing or purged rows, queue replacements at the \*arr.
 - **Never acts on stale data.** Every scan, re-check, purge, and search syncs from the \*arr first.
 - **Runs anywhere.** macOS, Linux, and Windows, Docker, plus a desktop icon and tray icon for daily use.
 
@@ -63,8 +63,8 @@ pnpm dev:server        # API + UI on http://127.0.0.1:5656
 
 Then in the dashboard:
 
-1. Go to Settings, add `http://127.0.0.1:8699` and `http://127.0.0.1:8698` with key `checkarr-stub-key`, test them.
-2. Hit **Sync libraries** on the Dashboard, then start a scan.
+1. Go to Settings, add `http://127.0.0.1:8699` and `http://127.0.0.1:8698` with key `checkarr-stub-key`, and use **Test connection** on each.
+2. On the Dashboard, hit **Sync library**, then open the **Scan library** menu and start a scan.
 3. You should get 2 healthy, 1 corrupt (truncated), 1 suspect (middle damage), 1 missing (ghost file).
 
 ## Install
@@ -142,7 +142,7 @@ Settings live in SQLite (`data/checkarr.db`, override the directory with `CHECKA
 - **Concurrent checks.** 1–32 parallel ffmpeg workers (default 8)
 - **ffmpeg/ffprobe path overrides.** Use system binaries instead of the bundled ones
 - **Local broadcasting.** Bind `0.0.0.0` instead of loopback so other devices on your network can open the dashboard (no authentication, trusted networks only). Saves with the rest of the settings and takes effect on "Restart server". An explicit `HOST` environment variable overrides it.
-- **Re-search missing.** One click tells the \*arr to search for every missing item in scope (Radarr `MoviesSearch` / Sonarr `EpisodesSearch`). The library syncs first so the search list reflects what the \*arr currently reports.
+- **Re-search missing.** One click tells the \*arr to search for every missing or purged item in scope (Radarr `MoviesSearch` / Sonarr `EpisodesSearch`); Search now re-searches a single file's item. The library syncs first so the search list reflects what the \*arr currently reports.
 
 Environment: `CHECKARR_PORT` (default 5656; 6767 belongs to Bazarr), `HOST` (default 127.0.0.1), `CHECKARR_DATA_DIR`, `CHECKARR_WEB_DIST`, `LOG_LEVEL`, `CHECKARR_ALLOWED_HOSTS` (comma-separated hostnames the API accepts; setting it also enforces the Host check while local broadcasting is on).
 
@@ -166,11 +166,12 @@ POST   /api/purge                     { status: unchecked|healthy|suspect|corrup
 POST   /api/files/:id/purge           delete one file at its *arr source + search replacement (syncs the item first)
 POST   /api/scan/cancel               stop the running scan; a scan still syncing the library is cancelled before it starts (the sync itself finishes)
 POST   /api/restart                   restart the HTTP listener (applies the local-broadcast setting)
-POST   /api/research                  queue searches at the *arr for every missing item (or { sourceId }); syncs first; 409 while a scan runs
+POST   /api/research                  { status?: missing|purged, sourceId? } queue searches at the *arr for items waiting on a download (default missing); syncs first; 409 while a scan runs
 GET    /api/scan/current              progress of the active/last run
 GET    /api/files?status=&sourceId=&q=&page=&pageSize=&sort=title|status|size|checked&dir=asc|desc    library listing
 GET    /api/files/:id                 full detail incl. ffmpeg findings
 POST   /api/files/:id/recheck         re-run the quick check on one file (syncs the item from the *arr first)
+POST   /api/files/:id/research        queue one search for the file's item at its *arr (syncs the item first)
 GET    /api/files/:id/stream          Range-aware streaming for the browser player
 ```
 

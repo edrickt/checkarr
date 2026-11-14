@@ -6,6 +6,7 @@ import { binariesUsable, resolveBinaries } from "./services/ffmpeg.js";
 import { checkMediaFile, resolveLocalPath, type CheckOutcome } from "./services/checker.js";
 import { persistCheckOutcome, ScanManager, type ScanScope } from "./services/scanner.js";
 import {
+  fetchArr,
   syncOneItem,
   syncSource,
   testSource,
@@ -14,7 +15,7 @@ import {
   type SyncResult
 } from "./services/sync.js";
 import { purgeFiles } from "./services/purge.js";
-import { researchMissing } from "./services/research.js";
+import { researchMissing, type ResearchStatus } from "./services/research.js";
 import { ApiError } from "./lib/api-error.js";
 import type { DB } from "./db.js";
 
@@ -511,12 +512,22 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager, se
   });
 
   // ---- research missing ----
-  // Queue interactive searches at the *arr for missing items (monitored, not
-  // downloaded). Non-destructive, but it still syncs first so 'missing'
-  // reflects what the *arr reports now: a freshly downloaded file must not
-  // be searched for, and a removed item must not be searched for either.
+  // Queue interactive searches at the *arr for items waiting on a download:
+  // 'missing' rows (monitored, not downloaded) by default, or 'purged' rows
+  // whose replacement search is still pending. Non-destructive, but it still
+  // syncs first so the selected status reflects what the *arr reports now: a
+  // freshly downloaded file must not be searched for, and a removed item must
+  // not be searched for either.
+  const RESEARCH_STATUSES: ResearchStatus[] = ["missing", "purged"];
   app.post("/api/research", async (req) => {
     const b = (req.body ?? {}) as Record<string, unknown>;
+    // A missing status may keep the historical 'missing' default, but a value
+    // that is present must be one of the waiting statuses: a wrong-typed value
+    // (an array, a number, null) must be a 400 instead of silently searching
+    // rows the caller did not ask for.
+    const status = b.status === undefined ? "missing" : b.status;
+    if (typeof status !== "string" || !RESEARCH_STATUSES.includes(status as ResearchStatus))
+      throw new ApiError(400, "status must be one of: " + RESEARCH_STATUSES.join(", "));
     let sourceId: number | undefined;
     if (b.sourceId !== undefined && b.sourceId !== null) {
       sourceId = Number(b.sourceId);
@@ -525,8 +536,9 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager, se
     }
     return runBatch("re-search", async () => {
       if (scans.isActive()) throw new ApiError(409, "A scan is running - wait for it to finish or cancel it");
-      const synced = await syncSourcesForBatch(sourceId, "re-search missing");
-      const result = await researchMissing(db, { sourceId });
+      const syncOp = "re-search " + status;
+      const synced = await syncSourcesForBatch(sourceId, syncOp);
+      const result = await researchMissing(db, { sourceId, status: status as ResearchStatus });
       return { ...result, synced };
     });
   });
@@ -752,6 +764,45 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager, se
       // The batch gate is held, so no scan can start between the sync and the
       // delete: the file is never removed out from under a running scan.
       return purgeFiles(db, { fileId: id });
+    });
+  });
+
+  app.post("/api/files/:id/research", async (req) => {
+    const id = Number((req.params as { id: string }).id);
+    if (!Number.isInteger(id)) throw new ApiError(400, "invalid file id");
+    return runBatch("re-search", async () => {
+      if (scans.isActive()) throw new ApiError(409, "A scan is running - wait for it to finish or cancel it");
+      const row = getFileWithSource(id);
+      if (!row) throw new ApiError(404, "file not found");
+      if (!row.source_enabled)
+        throw new ApiError(409, "this file's source is disabled - enable it in Settings to search");
+      // The *arr command needs its own numeric id: a junk external_id (a
+      // malformed row) must be a 400, not a request for an undefined item.
+      const externalId = Number(row.external_id);
+      if (!allDigits(row.external_id) || !Number.isSafeInteger(externalId) || externalId <= 0)
+        throw new ApiError(400, "this file has no valid *arr id - re-sync the library and try again");
+      // Sync the item first: the *arr is the source of truth, and an item it no
+      // longer tracks has no search to queue (the row is dropped, like re-check).
+      const synced = await syncSingleItem(row, "search");
+      if (!synced.found)
+        throw new ApiError(404, "the *arr no longer has this item - it was removed during sync");
+      // Same per-source command as the bulk re-search; one id needs no chunking.
+      const errors: string[] = [];
+      let searched = 0;
+      try {
+        await fetchArr(row.source_base_url, row.source_api_key, "/api/v3/command", {
+          method: "POST",
+          body:
+            row.source_type === "radarr"
+              ? { name: "MoviesSearch", movieIds: [externalId] }
+              : { name: "EpisodesSearch", episodeIds: [externalId] }
+        });
+        searched = 1;
+      } catch (err) {
+        errors.push("search command failed: " + String((err as Error)?.message ?? err));
+      }
+      // name/type identify the *arr source, like the bulk research response.
+      return { id: row.id, name: row.source_name, type: row.source_type, searched, errors };
     });
   });
 

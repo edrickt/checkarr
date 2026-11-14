@@ -1,6 +1,6 @@
 # Checkarr codebase map
 
-Verified against `7824385` (2026-11-12). pnpm monorepo: a Fastify/TypeScript API on Node's built-in `node:sqlite` (`apps/server`), a React 19 + Vite + Tailwind UI (`apps/web`), and plain-Node desktop/tray launchers (`scripts/`). Start at `apps/server/src/index.ts`; the abstraction to learn first is the `ScanManager` in `apps/server/src/services/scanner.ts`.
+Verified against the working tree after the 2026-11-13 UI overhaul (last commit `de2615f`). pnpm monorepo: a Fastify/TypeScript API on Node's built-in `node:sqlite` (`apps/server`), a React 19 + Vite + Tailwind UI (`apps/web`), and plain-Node desktop/tray launchers (`scripts/`). Start at `apps/server/src/index.ts`; the abstraction to learn first is the `ScanManager` in `apps/server/src/services/scanner.ts`.
 
 Maintenance: after adding, moving, or deleting a source file, update the File index and bump `Verified against` to the commit you checked.
 
@@ -10,7 +10,7 @@ Maintenance: after adding, moving, or deleting a source file, update the File in
 - Server entry: `apps/server/src/index.ts` opens the DB, resumes interrupted scans, builds Fastify via `apps/server/src/app.ts`, and listens on `127.0.0.1:5656`. It serves the built UI from `apps/web/dist` plus `/api` from `apps/server/src/routes.ts`.
 - Core abstractions: `ScanManager` (`apps/server/src/services/scanner.ts:77`) owns run lifecycle, worker concurrency, cancellation and progress. `checkMediaFile` (`apps/server/src/services/checker.ts:130`) turns one file into a verdict. `syncSource` (`apps/server/src/services/sync.ts:318`) makes the DB mirror the \*arr.
 - Derived dirs: `apps/server/dist` and `apps/web/dist` are build output; `data/` is gitignored runtime state (DB, logs, sample media); coverage output is generated.
-- Domain docs: none. There is no CONTEXT.md, GLOSSARY.md or ADR directory. `README.md` is the behaviour spec; `docs/audits/` is a historical audit.
+- Domain docs: none in the CONTEXT/GLOSSARY/ADR sense. `PRODUCT.md` (product spec) and `DESIGN.md` (visual authority) exist at the repo root; read both before UI changes. `README.md` is the behaviour spec; `docs/audits/` is a historical audit.
 - Errors: throw `ApiError` (`apps/server/src/lib/api-error.ts:1`); the handler registered in `apps/server/src/routes.ts` maps it to an HTTP status.
 - The API is unauthenticated and meant for loopback/LAN use; security behaviour lives in `apps/server/src/app.ts`, not in route handlers.
 
@@ -27,31 +27,31 @@ Maintenance: after adding, moving, or deleting a source file, update the File in
 
 ## Where things live
 
-| Concern                                         | Files                                                                                                          |
-| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| API routes, validation, errors                  | `apps/server/src/routes.ts:113`                                                                                |
-| Batch-operation gate (scan/sync/purge/research) | `apps/server/src/routes.ts:137`                                                                                |
-| Host/cross-site guards                          | `apps/server/src/app.ts:90`                                                                                    |
-| DB schema, migrations, pragmas                  | `apps/server/src/db.ts:7`, `apps/server/src/db.ts:78`, `apps/server/src/db.ts:211`                             |
-| Scan lifecycle, claims, progress                | `apps/server/src/services/scanner.ts:77`                                                                       |
-| Per-file check (stat, probe, decode)            | `apps/server/src/services/checker.ts:130`                                                                      |
-| ffmpeg resolution and PATH fallback             | `apps/server/src/services/ffmpeg.ts:116`, `apps/server/src/services/ffmpeg.ts:87`                              |
-| Verdict classification                          | `apps/server/src/lib/classify.ts:25`, `apps/server/src/lib/classify.ts:46`                                     |
-| \*arr HTTP client and sync                      | `apps/server/src/services/sync.ts:77`, `apps/server/src/services/sync.ts:318`                                  |
-| Purge, re-search missing                        | `apps/server/src/services/purge.ts:222`, `apps/server/src/services/research.ts:67`                             |
-| Settings, path mappings                         | `apps/server/src/settings.ts:27`, `apps/server/src/lib/paths.ts:16`                                            |
-| Env, paths, port, bind host                     | `apps/server/src/config.ts`                                                                                    |
-| Status/scope vocabulary                         | `apps/server/src/services/checker.ts:14`, `apps/web/src/status.ts:17`                                          |
-| UI shell, dashboard actions                     | `apps/web/src/App.tsx:18`, `apps/web/src/components/Dashboard.tsx:40`                                          |
-| Library, detail, settings                       | `apps/web/src/components/LibraryTable.tsx:29`, `apps/web/src/components/SettingsPage.tsx:18`                   |
-| Web plumbing (client, hooks, routing)           | `apps/web/src/api.ts:51`, `apps/web/src/hooks.ts:6`, `apps/web/src/router.ts:37`, `apps/web/src/useScan.ts:15` |
-| Start/stop, desktop, tray                       | `scripts/`                                                                                                     |
-| Dev fixtures                                    | `scripts/dev/gen-sample-media.mjs`, `scripts/dev/stub-arr.mjs`                                                 |
-| Packaging and CI                                | `docker/Dockerfile`, `docker/docker-compose.yml`, `.github/workflows/ci.yml`                                   |
+| Concern                                         | Files                                                                                                                                      |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| API routes, validation, errors                  | `apps/server/src/routes.ts:114`                                                                                                            |
+| Batch-operation gate (scan/sync/purge/research) | `apps/server/src/routes.ts:138`                                                                                                            |
+| Host/cross-site guards                          | `apps/server/src/app.ts:90`                                                                                                                |
+| DB schema, migrations, pragmas                  | `apps/server/src/db.ts:7`, `apps/server/src/db.ts:78`, `apps/server/src/db.ts:211`                                                         |
+| Scan lifecycle, claims, progress                | `apps/server/src/services/scanner.ts:77`                                                                                                   |
+| Per-file check (stat, probe, decode)            | `apps/server/src/services/checker.ts:130`                                                                                                  |
+| ffmpeg resolution and PATH fallback             | `apps/server/src/services/ffmpeg.ts:116`, `apps/server/src/services/ffmpeg.ts:87`                                                          |
+| Verdict classification                          | `apps/server/src/lib/classify.ts:25`, `apps/server/src/lib/classify.ts:46`                                                                 |
+| \*arr HTTP client and sync                      | `apps/server/src/services/sync.ts:77`, `apps/server/src/services/sync.ts:318`                                                              |
+| Purge, re-search missing                        | `apps/server/src/services/purge.ts:222`, `apps/server/src/services/research.ts:67`                                                         |
+| Settings, path mappings                         | `apps/server/src/settings.ts:27`, `apps/server/src/lib/paths.ts:16`                                                                        |
+| Env, paths, port, bind host                     | `apps/server/src/config.ts`                                                                                                                |
+| Status/scope vocabulary                         | `apps/server/src/services/checker.ts:14`, `apps/web/src/status.ts:17`                                                                      |
+| UI shell, dashboard actions                     | `apps/web/src/App.tsx:19`, `apps/web/src/components/Dashboard.tsx:58`                                                                      |
+| Library, detail, settings                       | `apps/web/src/components/LibraryTable.tsx:47`, `apps/web/src/components/DetailModal.tsx:38`, `apps/web/src/components/SettingsPage.tsx:76` |
+| Web plumbing (client, hooks, routing)           | `apps/web/src/api.ts:53`, `apps/web/src/hooks.ts:6`, `apps/web/src/router.ts:76`, `apps/web/src/useScan.ts:15`                             |
+| Start/stop, desktop, tray                       | `scripts/`                                                                                                                                 |
+| Dev fixtures                                    | `scripts/dev/gen-sample-media.mjs`, `scripts/dev/stub-arr.mjs`                                                                             |
+| Packaging and CI                                | `docker/Dockerfile`, `docker/docker-compose.yml`, `.github/workflows/ci.yml`                                                               |
 
 ## Task recipes
 
-**Add or change an API endpoint.** Read `apps/server/src/routes.ts:113` (routes, error handler) and `apps/server/src/app.ts:90` (guards apply to all). Change the handler; mirror the client call in `apps/web/src/api.ts:51`. Test `pnpm -F @checkarr/server exec vitest run test/routes.test.ts`.
+**Add or change an API endpoint.** Read `apps/server/src/routes.ts:114` (routes, error handler) and `apps/server/src/app.ts:90` (guards apply to all). Change the handler; mirror the client call in `apps/web/src/api.ts:51`. Test `pnpm -F @checkarr/server exec vitest run test/routes.test.ts`.
 
 **Change what counts as corrupt or suspect.** Read `apps/server/src/lib/classify.ts:25` (decode rules), `apps/server/src/lib/classify.ts:46` (probe rules) and `apps/server/src/services/checker.ts:130` (step order and thresholds). Test `pnpm -F @checkarr/server exec vitest run test/classify.test.ts` and, for real decoding, `apps/server/test/checker.integration.test.ts`.
 
@@ -61,7 +61,7 @@ Maintenance: after adding, moving, or deleting a source file, update the File in
 
 **Add a settings field.** Read `apps/server/src/settings.ts:27` (read/defaults) and `apps/server/src/settings.ts:55` (validation), the `settings` table in `apps/server/src/db.ts:7` plus a migration at `apps/server/src/db.ts:78`; wire the GET/PUT handlers near `apps/server/src/routes.ts:284`; add the control in `apps/web/src/components/SettingsPage.tsx:18`.
 
-**Change UI tabs or deep links.** Read `apps/web/src/router.ts:37` (parse/serialize) and `apps/web/src/App.tsx:18` (tab shell). Test `pnpm -F @checkarr/web exec vitest run test/router.test.ts`.
+**Change UI tabs or deep links.** Read `apps/web/src/router.ts:76` (parse/serialize) and `apps/web/src/App.tsx:19` (tab shell). Test `pnpm -F @checkarr/web exec vitest run test/router.test.ts`.
 
 **Change start/stop/tray behaviour.** Read `scripts/start.mjs`, `scripts/stop.mjs`, `scripts/lib/launcher.mjs` and `scripts/lib/tray.mjs`. Test `pnpm exec vitest run scripts/test/launcher.test.mjs`; the root vitest config covers `scripts/test/**/*.test.mjs`.
 
@@ -93,7 +93,7 @@ Maintenance: after adding, moving, or deleting a source file, update the File in
 - Status and scope vocabulary is duplicated: `apps/server/src/services/checker.ts:14`, `apps/server/src/services/scanner.ts:10`, `apps/server/src/routes.ts:535`, the DB CHECK constraints in `apps/server/src/db.ts:7`, `apps/web/src/types.ts:1`, `apps/web/src/status.ts:17`. Miss one and the app rejects or mislabels it. `healthy` is not a scan scope.
 - `pnpm dev:server` serves the built UI from `apps/web/dist` on `127.0.0.1:5656`; it does not run Vite. For UI HMR run `pnpm dev:web` too (Vite on 5173, proxies `/api` to 5656 via `apps/web/vite.config.ts`). A stale `apps/web/dist` hides UI edits.
 - The API has no authentication by design. Host and cross-site write checks are one `onRequest` hook in `apps/server/src/app.ts:90`, not per-route middleware. While broadcasting (`HOST=0.0.0.0`, Docker), Host checking is permissive unless `CHECKARR_ALLOWED_HOSTS` is set. Tests: `apps/server/test/host-guard.test.ts`, `apps/server/test/routes.test.ts`.
-- Every batch operation (scan, sync, bulk purge, re-search) takes the gate at `apps/server/src/routes.ts:137` and syncs the \*arr first. New routes that touch the library must use that gate; per-file routes sync their one item first.
+- Every batch operation (scan, sync, bulk purge, re-search) takes the gate at `apps/server/src/routes.ts:138` and syncs the \*arr first. New routes that touch the library must use that gate; per-file routes sync their one item first.
 - Bundled `ffprobe-static` can ship the wrong CPU architecture on Apple Silicon; `chooseStaticBinary` (`apps/server/src/services/ffmpeg.ts:87`) falls back to a system binary on `PATH`. Do not hard-code binary paths to "fix" this.
 
 ## File index
@@ -129,6 +129,7 @@ Maintenance: after adding, moving, or deleting a source file, update the File in
 - `apps/web/src/types.ts` - shared domain and API types.
 - `apps/web/src/utils.ts` - byte, duration and date formatting.
 - `apps/web/src/index.css` - Tailwind entry and base styles.
+- `apps/web/src/ui/icons.tsx` - authored inline SVG icon set (chevron, close, more, sort caret).
 - `apps/web/src/components/Dashboard.tsx` - status cards and scan/purge/research actions.
 - `apps/web/src/components/LibraryTable.tsx` - filter/sort/page table and row actions.
 - `apps/web/src/components/DetailModal.tsx` - file detail, stream player, recheck.

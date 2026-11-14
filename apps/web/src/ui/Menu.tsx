@@ -9,6 +9,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { Button, type ButtonSize, type ButtonVariant } from "./Button";
+import { ChevronDownIcon } from "./icons";
 
 export interface MenuItemSpec {
   key: string;
@@ -23,7 +24,9 @@ export interface MenuItemSpec {
 }
 
 const ITEM =
-  "block w-full px-3 py-2 text-left text-sm text-neutral-700 hover:bg-neutral-100 disabled:cursor-not-allowed disabled:text-neutral-300 disabled:hover:bg-transparent";
+  "block w-full px-3 py-2 text-left text-sm text-neutral-700 transition-colors hover:bg-neutral-50 " +
+  "focus-visible:bg-neutral-50 focus-visible:outline-offset-[-2px] disabled:cursor-not-allowed " +
+  "disabled:text-neutral-400 disabled:hover:bg-transparent";
 
 /**
  * The one dropdown pattern (Scan, Delete & re-search, row actions): a trigger
@@ -45,7 +48,7 @@ export function DropdownButton({
   title,
   ariaLabel,
   align = "left",
-  menuClassName = "w-64",
+  menuClassName = "w-72",
   className = ""
 }: {
   label: ReactNode;
@@ -149,7 +152,7 @@ export function DropdownButton({
   };
 
   return (
-    <div ref={rootRef} className={"relative " + className}>
+    <div ref={rootRef} className={"relative inline-flex " + className}>
       <Button
         ref={triggerRef}
         variant={variant}
@@ -161,19 +164,14 @@ export function DropdownButton({
         aria-label={ariaLabel}
         onClick={() => setOpen((o) => !o)}
       >
-        <span className="inline-flex items-center gap-1.5">
-          {label}
-          {caret && (
-            <span
-              aria-hidden="true"
-              className={
-                "inline-block text-[10px] leading-none transition-transform " + (open ? "rotate-180" : "")
-              }
-            >
-              &#9662;
-            </span>
-          )}
-        </span>
+        {label}
+        {caret && (
+          <ChevronDownIcon
+            width={12}
+            height={12}
+            className={"text-neutral-500 transition-transform " + (open ? "rotate-180" : "")}
+          />
+        )}
       </Button>
       {open &&
         createPortal(
@@ -183,7 +181,10 @@ export function DropdownButton({
             aria-label={ariaLabel}
             onKeyDown={onMenuKeyDown}
             style={pos ? { top: pos.top, left: pos.left } : undefined}
-            className={"fixed z-50 border border-neutral-200 bg-white py-1 shadow-lg " + menuClassName}
+            className={
+              "fixed z-50 border border-neutral-200 bg-white py-1 shadow-[0_16px_40px_-20px_rgba(0,0,0,0.4)] " +
+              menuClassName
+            }
           >
             {items.map((item, i) => (
               <button
@@ -198,14 +199,16 @@ export function DropdownButton({
                   setOpen(false);
                   item.onSelect();
                 }}
-                className={ITEM + (item.danger ? " text-red-600" : "")}
+                className={ITEM + (item.danger ? " text-red-700" : "")}
               >
                 <span className="flex items-baseline justify-between gap-3">
                   <span>{item.label}</span>
-                  {item.hint !== undefined && <span className="shrink-0 text-neutral-400">{item.hint}</span>}
+                  {item.hint !== undefined && (
+                    <span className="shrink-0 text-xs tabular-nums text-neutral-500">{item.hint}</span>
+                  )}
                 </span>
                 {item.description && (
-                  <span className="mt-0.5 block text-xs font-normal text-neutral-400">
+                  <span className="mt-0.5 block text-xs font-normal text-neutral-500">
                     {item.description}
                   </span>
                 )}

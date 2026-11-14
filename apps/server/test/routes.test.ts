@@ -51,6 +51,9 @@ let stubMovies: Record<
   | undefined
 >;
 let stubDeletes: string[];
+// Search commands queued at the stub *arr (MoviesSearch / EpisodesSearch),
+// captured so the research tests can assert exactly which ids were searched.
+let stubCommands: { name: string; movieIds?: number[]; episodeIds?: number[] }[];
 let arrStub: Server;
 let arrStubUrl: string;
 // Library-list requests answered by the stub, and responses deliberately held
@@ -103,6 +106,7 @@ beforeAll(async () => {
     "9": { id: 9, title: "Not Yet", year: 2026, monitored: true, movieFile: null }
   };
   stubDeletes = [];
+  stubCommands = [];
   respondMovieList = (res) => {
     const list = Object.values(stubMovies)
       .filter((m) => m !== undefined)
@@ -163,6 +167,17 @@ beforeAll(async () => {
       let body = "";
       req.on("data", (c) => (body += c));
       return req.on("end", () => {
+        let parsed: { name?: unknown; movieIds?: unknown; episodeIds?: unknown } = {};
+        try {
+          parsed = JSON.parse(body);
+        } catch {
+          // A malformed command body is captured as an empty command below.
+        }
+        stubCommands.push({
+          name: String(parsed.name ?? ""),
+          ...(Array.isArray(parsed.movieIds) ? { movieIds: parsed.movieIds as number[] } : {}),
+          ...(Array.isArray(parsed.episodeIds) ? { episodeIds: parsed.episodeIds as number[] } : {})
+        });
         res.writeHead(201, { "content-type": "application/json" }).end(JSON.stringify({ id: 1 }));
       });
     }
@@ -864,6 +879,194 @@ describe("batch operation gate", () => {
       await app.inject({ method: "POST", url: "/api/scan/cancel", payload: {} });
       await Promise.allSettled([scanPromise ?? Promise.resolve(), syncPromise ?? Promise.resolve()]);
       await sleep(50);
+    }
+  });
+});
+
+describe("re-search (bulk)", () => {
+  // A fileless movie row paired with a stub movie in the library list: the
+  // route's pre-sync keeps it waiting (missing stays missing, purged stays
+  // purged), which is exactly the state the search selection reads.
+  function insertWaitingRow(externalId: string, status: "missing" | "purged"): number {
+    return Number(
+      db
+        .prepare(
+          "INSERT INTO media_files (source_id, kind, external_id, title, path, status)" +
+            " VALUES (1, 'movie', ?, ?, NULL, ?)"
+        )
+        .run(externalId, "Research " + externalId, status).lastInsertRowid
+    );
+  }
+
+  const movieIdsSearched = (): number[] =>
+    stubCommands.filter((c) => c.name === "MoviesSearch").flatMap((c) => c.movieIds ?? []);
+
+  it("defaults to 'missing' rows and never searches 'purged' rows", async () => {
+    stubMovies["60"] = { id: 60, title: "Missing Search", year: 2026, monitored: true, movieFile: null };
+    stubMovies["61"] = { id: 61, title: "Purged Search", year: 2026, monitored: true, movieFile: null };
+    const missingId = insertWaitingRow("60", "missing");
+    const purgedId = insertWaitingRow("61", "purged");
+    stubCommands = [];
+    try {
+      const r = await app.inject({ method: "POST", url: "/api/research", payload: { sourceId: 1 } });
+      expect(r.statusCode).toBe(200);
+      const body = r.json();
+      expect(body.synced).toHaveLength(1);
+      expect(body.results).toContainEqual(
+        expect.objectContaining({ sourceId: 1, searched: expect.any(Number), errors: [] })
+      );
+      expect(body.total).toBeGreaterThanOrEqual(1);
+      const ids = movieIdsSearched();
+      expect(ids).toContain(60);
+      expect(ids).not.toContain(61);
+      // The purged row still waits for its replacement; it was not searched.
+      expect((db.prepare("SELECT status FROM media_files WHERE id = ?").get(purgedId) as any).status).toBe(
+        "purged"
+      );
+    } finally {
+      delete stubMovies["60"];
+      delete stubMovies["61"];
+      db.prepare("DELETE FROM media_files WHERE id IN (?, ?)").run(missingId, purgedId);
+    }
+  });
+
+  it("searches only 'purged' rows when status='purged'", async () => {
+    stubMovies["62"] = { id: 62, title: "Still Missing", year: 2026, monitored: true, movieFile: null };
+    stubMovies["63"] = {
+      id: 63,
+      title: "Awaiting Replacement",
+      year: 2026,
+      monitored: true,
+      movieFile: null
+    };
+    const missingId = insertWaitingRow("62", "missing");
+    const purgedId = insertWaitingRow("63", "purged");
+    stubCommands = [];
+    try {
+      const r = await app.inject({
+        method: "POST",
+        url: "/api/research",
+        payload: { status: "purged", sourceId: 1 }
+      });
+      expect(r.statusCode).toBe(200);
+      expect(r.json().total).toBeGreaterThanOrEqual(1);
+      const ids = movieIdsSearched();
+      expect(ids).toContain(63);
+      expect(ids).not.toContain(62);
+    } finally {
+      delete stubMovies["62"];
+      delete stubMovies["63"];
+      db.prepare("DELETE FROM media_files WHERE id IN (?, ?)").run(missingId, purgedId);
+    }
+  });
+
+  it("rejects an unknown or wrong-typed status instead of searching the default rows", async () => {
+    stubCommands = [];
+    for (const status of ["all", 123, true, null, ""]) {
+      const r = await app.inject({ method: "POST", url: "/api/research", payload: { status } });
+      expect(r.statusCode).toBe(400);
+      expect(r.json().error).toMatch(/status must be one of: missing, purged/);
+    }
+    expect(stubCommands).toEqual([]);
+  });
+});
+
+describe("single-item re-search", () => {
+  function insertFileRow(externalId: string, status: string): number {
+    return Number(
+      db
+        .prepare(
+          "INSERT INTO media_files (source_id, kind, external_id, title, path, status)" +
+            " VALUES (1, 'movie', ?, ?, NULL, ?)"
+        )
+        .run(externalId, "Single " + externalId, status).lastInsertRowid
+    );
+  }
+
+  it("validates the file id", async () => {
+    const r = await app.inject({ method: "POST", url: "/api/files/abc/research", payload: {} });
+    expect(r.statusCode).toBe(400);
+    expect(r.json()).toEqual({ error: "invalid file id" });
+  });
+
+  it("queues one MoviesSearch at the *arr and reports searched:1", async () => {
+    stubMovies["70"] = { id: 70, title: "Queue Me", year: 2026, monitored: true, movieFile: null };
+    const id = insertFileRow("70", "purged");
+    const sourceName = (db.prepare("SELECT name FROM sources WHERE id = 1").get() as { name: string }).name;
+    stubCommands = [];
+    try {
+      const r = await app.inject({ method: "POST", url: "/api/files/" + id + "/research", payload: {} });
+      expect(r.statusCode).toBe(200);
+      expect(r.json()).toEqual({ id, name: sourceName, type: "radarr", searched: 1, errors: [] });
+      expect(stubCommands).toEqual([{ name: "MoviesSearch", movieIds: [70] }]);
+    } finally {
+      delete stubMovies["70"];
+      db.prepare("DELETE FROM media_files WHERE id = ?").run(id);
+    }
+  });
+
+  it("answers 404 and drops the row when the *arr no longer has the item", async () => {
+    const id = insertFileRow("98", "missing");
+    stubCommands = [];
+    const r = await app.inject({ method: "POST", url: "/api/files/" + id + "/research", payload: {} });
+    expect(r.statusCode).toBe(404);
+    expect(db.prepare("SELECT id FROM media_files WHERE id = ?").get(id)).toBeUndefined();
+    expect(stubCommands).toEqual([]);
+  });
+
+  it("answers 400 for a non-numeric *arr id and never sends it to the *arr", async () => {
+    // The *arr is never called, so the row survives: a sync-first route would
+    // have 404'd on GET /movie/abc and deleted the row instead.
+    const id = insertFileRow("abc", "missing");
+    stubCommands = [];
+    try {
+      const r = await app.inject({ method: "POST", url: "/api/files/" + id + "/research", payload: {} });
+      expect(r.statusCode).toBe(400);
+      expect(r.json().error).toMatch(/no valid \*arr id/);
+      expect(db.prepare("SELECT id FROM media_files WHERE id = ?").get(id)).toMatchObject({ id });
+      expect(stubCommands).toEqual([]);
+    } finally {
+      db.prepare("DELETE FROM media_files WHERE id = ?").run(id);
+    }
+  });
+
+  it("answers 409 when the file's source is disabled", async () => {
+    db.prepare("UPDATE sources SET enabled = 0 WHERE id = 1").run();
+    try {
+      const r = await app.inject({ method: "POST", url: "/api/files/" + fileId + "/research", payload: {} });
+      expect(r.statusCode).toBe(409);
+      expect(r.json().error).toMatch(/source is disabled - enable it in Settings to search/);
+    } finally {
+      db.prepare("UPDATE sources SET enabled = 1 WHERE id = 1").run();
+    }
+  });
+
+  it("answers 409 while a scan is active", async () => {
+    checkMock.mockImplementation(
+      (_path: string, ctx: { signal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          ctx.signal?.addEventListener("abort", () => reject(new Error("scan cancelled")), { once: true });
+        })
+    );
+    stubCommands = [];
+    try {
+      const started = await app.inject({ method: "POST", url: "/api/scan", payload: { scope: "all" } });
+      expect(started.statusCode).toBe(200);
+      let active = false;
+      for (let i = 0; i < 100 && !active; i++) {
+        await new Promise((r2) => setTimeout(r2, 20));
+        active = (await app.inject({ method: "GET", url: "/api/scan/current" })).json().active === true;
+      }
+      expect(active).toBe(true);
+      const r = await app.inject({ method: "POST", url: "/api/files/" + fileId + "/research", payload: {} });
+      expect(r.statusCode).toBe(409);
+      expect(r.json()).toMatchObject({ error: "A scan is running - wait for it to finish or cancel it" });
+      expect(stubCommands).toEqual([]);
+    } finally {
+      await app.inject({ method: "POST", url: "/api/scan/cancel", payload: {} });
+      await new Promise((r2) => setTimeout(r2, 50));
+      checkMock.mockImplementation(defaultCheck);
+      await waitForScanToSettle();
     }
   });
 });

@@ -1,15 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import Dashboard from "../src/components/Dashboard";
-import { STATUS_META } from "../src/status";
 import type { Source, Stats } from "../src/types";
 import { ConfirmProvider } from "../src/ui/ConfirmDialog";
 import { ToastProvider } from "../src/ui/Toast";
 
 const statsMock = vi.fn();
 const sourcesMock = vi.fn();
+const purgeMock = vi.fn();
+const researchMock = vi.fn();
 
 vi.mock("../src/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/api")>();
@@ -27,7 +28,8 @@ vi.mock("../src/api", async (importOriginal) => {
         ffmpegError: null
       }),
       sync: vi.fn(),
-      purge: vi.fn(),
+      purge: (...args: unknown[]) => purgeMock(...args),
+      researchMissing: (...args: unknown[]) => researchMock(...args),
       startScan: vi.fn()
     }
   };
@@ -48,8 +50,8 @@ const oneSource: Source[] = [
 ];
 
 const stats: Stats = {
-  total: 7,
-  byStatus: { corrupt: 2, suspect: 1, unreachable: 0, missing: 3, purged: 0, unchecked: 0, healthy: 1 },
+  total: 8,
+  byStatus: { corrupt: 2, suspect: 1, unreachable: 0, missing: 3, purged: 1, unchecked: 0, healthy: 1 },
   bySource: [],
   lastScan: null,
   activeScan: false
@@ -73,19 +75,37 @@ function renderDashboard() {
 const menuItem = (label: string) =>
   screen.getAllByRole("menuitem").find((el) => el.textContent?.startsWith(label));
 
+const rowFor = (label: string) => {
+  const node = screen.getByText(label, { selector: "span" });
+  const li = node.closest("li");
+  if (!li) throw new Error("row not found for " + label);
+  return within(li);
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
+  purgeMock.mockResolvedValue({ results: [], total: 0, synced: [] });
+  researchMock.mockResolvedValue({ results: [], total: 0, synced: [] });
   statsMock.mockResolvedValue(stats);
   sourcesMock.mockResolvedValue({ sources: oneSource });
 });
 
 describe("Dashboard", () => {
-  it("renders the status cards in the canonical order (problems first, healthy last)", async () => {
+  it("orders the status rows by severity: problems, then waiting, then the rest", async () => {
     renderDashboard();
     await screen.findByText("Main Radarr");
-    const corrupt = screen.getByTitle(STATUS_META.corrupt.description);
-    const healthy = screen.getByTitle(STATUS_META.healthy.description);
-    expect(corrupt.compareDocumentPosition(healthy) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const order = [
+      screen.getByText("Corrupt"),
+      screen.getByText("Suspect"),
+      screen.getByText("Unreachable"),
+      screen.getByText("Missing"),
+      screen.getByText("Purged"),
+      screen.getByText(/^Unchecked/),
+      screen.getByText(/^Healthy/)
+    ];
+    for (let i = 1; i < order.length; i += 1) {
+      expect(order[i - 1].compareDocumentPosition(order[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
   });
 
   it("shows the scan scopes with counts, disabling empty ones instead of hiding them", async () => {
@@ -93,34 +113,54 @@ describe("Dashboard", () => {
     renderDashboard();
     await screen.findByText("Main Radarr");
 
-    await user.click(screen.getByRole("button", { name: "Scan" }));
+    await user.click(screen.getByRole("button", { name: "Scan library" }));
     expect(menuItem("Corrupt")).toBeEnabled();
     expect(menuItem("Suspect")).toBeEnabled();
     expect(menuItem("Unreachable")).toBeDisabled();
     expect(menuItem("Missing")).toBeEnabled();
-    expect(menuItem("Purged")).toBeDisabled();
+    expect(menuItem("Purged")).toBeEnabled();
     expect(menuItem("Unchecked")).toBeDisabled();
     expect(menuItem("Everything")).toBeEnabled();
     await user.keyboard("{Escape}");
   });
 
-  it("gates every Delete & re-search variant behind the confirm dialog", async () => {
+  it("gates a status delete behind the confirm dialog", async () => {
     const user = userEvent.setup();
     renderDashboard();
     await screen.findByText("Main Radarr");
 
-    await user.click(screen.getByRole("button", { name: "Delete & re-search" }));
-    expect(menuItem("Corrupt files")).toBeEnabled();
-    expect(menuItem("Suspect files")).toBeEnabled();
-    expect(menuItem("Unreachable files")).toBeDisabled();
-    expect(menuItem("Everything")).toBeEnabled();
-
-    await user.click(menuItem("Everything")!);
-    const dialog = await screen.findByRole("dialog", { name: "Delete 7 file(s) in all servers?" });
+    await user.click(rowFor("Corrupt").getByRole("button", { name: "Delete & re-search" }));
+    const dialog = await screen.findByRole("dialog", { name: "Delete 2 corrupt files in all libraries?" });
     expect(dialog).toHaveTextContent("This cannot be undone.");
     // Cancel must not fire the mutation.
     await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(purgeMock).not.toHaveBeenCalled();
     expect(screen.queryByRole("dialog", { name: /Delete/ })).not.toBeInTheDocument();
+  });
+
+  it("keeps the delete-everything escape hatch behind the section menu and the confirm dialog", async () => {
+    const user = userEvent.setup();
+    renderDashboard();
+    await screen.findByText("Main Radarr");
+
+    await user.click(screen.getByRole("button", { name: "More actions for problem files" }));
+    await user.click(menuItem("Delete every file in scope")!);
+    const dialog = await screen.findByRole("dialog", { name: "Delete 8 files in all libraries?" });
+    expect(dialog).toHaveTextContent("healthy ones included");
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(purgeMock).not.toHaveBeenCalled();
+  });
+
+  it("queues a search for missing and purged rows from the row itself", async () => {
+    const user = userEvent.setup();
+    renderDashboard();
+    await screen.findByText("Main Radarr");
+
+    await user.click(rowFor("Purged").getByRole("button", { name: "Search now" }));
+    expect(researchMock).toHaveBeenCalledWith(undefined, "purged");
+
+    await user.click(rowFor("Missing").getByRole("button", { name: "Search now" }));
+    expect(researchMock).toHaveBeenCalledWith(undefined, "missing");
   });
 
   it("shows the onboarding state when no sources exist", async () => {

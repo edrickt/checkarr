@@ -29,49 +29,49 @@ export const STATUS_META: Record<FileStatus, StatusMeta> = {
     key: "corrupt",
     label: "Corrupt",
     description: "The file could not be decoded - container or stream data is broken.",
-    dot: "bg-red-500",
+    dot: "bg-red-600",
     text: "text-red-600"
   },
   suspect: {
     key: "suspect",
     label: "Suspect",
     description: "Recoverable decode errors, unknown duration, or a timeout - it may still play.",
-    dot: "bg-amber-500",
+    dot: "bg-amber-600",
     text: "text-amber-600"
   },
   unreachable: {
     key: "unreachable",
     label: "Unreachable",
     description: "The file exists but is not readable (permissions).",
-    dot: "bg-violet-500",
+    dot: "bg-violet-600",
     text: "text-violet-600"
   },
   missing: {
     key: "missing",
     label: "Missing",
     description: "The *arr references a file that is gone, or a monitored item with no download yet.",
-    dot: "bg-sky-500",
+    dot: "bg-sky-600",
     text: "text-sky-600"
   },
   purged: {
     key: "purged",
     label: "Purged",
     description: "Deleted via Delete & re-search; waiting for the replacement download.",
-    dot: "bg-fuchsia-500",
+    dot: "bg-fuchsia-600",
     text: "text-fuchsia-600"
   },
   unchecked: {
     key: "unchecked",
     label: "Unchecked",
     description: "Synced from the *arr but not checked yet.",
-    dot: "bg-neutral-300",
+    dot: "bg-neutral-400",
     text: "text-neutral-500"
   },
   healthy: {
     key: "healthy",
     label: "Healthy",
     description: "Probe and all decode checks came back clean.",
-    dot: "bg-emerald-500",
+    dot: "bg-emerald-600",
     text: "text-emerald-600"
   }
 };

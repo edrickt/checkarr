@@ -54,4 +54,8 @@ Skip generated, vendored and historical paths: `node_modules/`, `apps/server/dis
 
 ## Domain docs
 
-None (no CONTEXT.md, GLOSSARY.md or ADRs). `README.md` is the behaviour spec: read its "How it works", "Verdicts" and "Security" sections before changing verdict or security logic.
+`PRODUCT.md` is the product spec (who, job, truths, surfaces) and `DESIGN.md` is the
+visual authority (tokens, type, components, per-screen IA). Read both before UI work.
+There is no CONTEXT.md, GLOSSARY.md or ADR directory. `README.md` is the behaviour spec:
+read its "How it works", "Verdicts" and "Security" sections before changing verdict or
+security logic.
