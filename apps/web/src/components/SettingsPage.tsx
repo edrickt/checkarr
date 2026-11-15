@@ -291,7 +291,7 @@ export default function SettingsPage() {
   const togglingId = toggleEnabled.isPending ? toggleEnabled.variables?.id : null;
 
   return (
-    <div className="space-y-10">
+    <div className="space-y-8 sm:space-y-10">
       {settings.isError && (
         <ErrorBanner>
           Could not load settings: {(settings.error as Error)?.message ?? "unknown error"} - saving is
@@ -484,7 +484,7 @@ export default function SettingsPage() {
       </Section>
 
       <form
-        className="space-y-10"
+        className="space-y-8 sm:space-y-10"
         onSubmit={(e) => {
           e.preventDefault();
           save.mutate();
@@ -569,8 +569,19 @@ export default function SettingsPage() {
               </div>
             )}
             {mappings.map((m, i) => (
-              <div key={i} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_5.5rem]">
+              <div
+                key={i}
+                className="grid gap-y-1.5 border-t border-neutral-100 pt-3 first:border-0 first:pt-0 sm:gap-2 sm:border-0 sm:pt-0 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_5.5rem]"
+              >
+                {/* The From/To column header is desktop-only; phones get a
+                    visible label per field so a filled row still reads. The
+                    labels are display:none at sm+, so the three visible items
+                    land in the three desktop columns. */}
+                <label htmlFor={"mapping-from-" + i} className="text-xs text-neutral-500 sm:hidden">
+                  From (*arr path)
+                </label>
                 <Input
+                  id={"mapping-from-" + i}
                   size="sm"
                   value={m.match}
                   onChange={(e) =>
@@ -582,7 +593,11 @@ export default function SettingsPage() {
                   aria-describedby={mappingsValid ? undefined : "path-mappings-error"}
                   className="w-full font-mono"
                 />
+                <label htmlFor={"mapping-to-" + i} className="text-xs text-neutral-500 sm:hidden">
+                  To (local path)
+                </label>
                 <Input
+                  id={"mapping-to-" + i}
                   size="sm"
                   value={m.replace}
                   onChange={(e) =>
@@ -595,6 +610,7 @@ export default function SettingsPage() {
                 <Button
                   size="sm"
                   variant="dangerOutline"
+                  className="justify-self-start sm:justify-self-stretch"
                   onClick={() => setMappings(mappings.filter((_, j) => j !== i))}
                 >
                   Remove

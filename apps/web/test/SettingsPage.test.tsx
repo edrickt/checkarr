@@ -255,8 +255,10 @@ describe("SettingsPage", () => {
     const saveButton = screen.getByRole("button", { name: "Save changes" });
 
     await user.click(screen.getByRole("button", { name: "Add mapping" }));
-    expect(screen.getByText("From (*arr path)")).toBeInTheDocument();
-    expect(screen.getByText("To (local path)")).toBeInTheDocument();
+    // The From/To wording appears twice by design: the desktop column header
+    // and the per-field label phones show in its place.
+    expect(screen.getAllByText("From (*arr path)").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("To (local path)").length).toBeGreaterThan(0);
     expect(screen.getByText(/Every path mapping needs a non-empty/)).toBeInTheDocument();
     expect(saveButton).toBeDisabled();
 

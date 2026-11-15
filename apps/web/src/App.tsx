@@ -67,8 +67,8 @@ function Shell() {
   };
 
   return (
-    <div className="min-h-screen bg-white text-neutral-900">
-      <header className="sticky top-0 z-40 border-b border-neutral-200 bg-white">
+    <div className="min-h-dvh bg-white text-neutral-900">
+      <header className="sticky top-0 z-40 border-b border-neutral-200 bg-white pt-[env(safe-area-inset-top)]">
         <div className="mx-auto flex h-14 max-w-6xl items-stretch gap-4 px-4 sm:gap-6 sm:px-6">
           <span className="flex shrink-0 items-center text-[15px] font-semibold tracking-tight">
             Checkarr
@@ -109,24 +109,30 @@ function Shell() {
               <span className="font-medium text-neutral-900">{runLabel}</span>
               {run.state !== "starting" && (
                 <span className="tabular-nums">
-                  {run.done} / {run.total} checked · {run.issues} with issues
+                  {run.done} / {run.total} checked
+                  <span className="hidden sm:inline"> · {run.issues} with issues</span>
                 </span>
               )}
-              <div className="h-0.5 flex-1 bg-neutral-200">
-                <div
-                  className="h-full bg-neutral-900 transition-[width] duration-200"
-                  style={{ width: pct + "%" }}
-                />
-              </div>
-              <span className="w-9 text-right tabular-nums">{pct}%</span>
               <Button
                 size="sm"
                 variant="dangerOutline"
+                className="ml-auto sm:order-last sm:ml-0"
                 onClick={() => cancelScan.mutate()}
                 disabled={cancelScan.isPending || run.state === "cancelling"}
               >
                 {cancelScan.isPending || run.state === "cancelling" ? "Cancelling…" : "Cancel"}
               </Button>
+              {/* On phones the progress track gets its own full-width row;
+                  sharing a line with the counts squeezed it to a stub. */}
+              <div className="order-last flex basis-full items-center gap-3 sm:order-none sm:flex-1 sm:basis-0">
+                <div className="h-0.5 flex-1 bg-neutral-200">
+                  <div
+                    className="h-full bg-neutral-900 transition-[width] duration-200"
+                    style={{ width: pct + "%" }}
+                  />
+                </div>
+                <span className="w-9 text-right tabular-nums">{pct}%</span>
+              </div>
             </div>
           </div>
         )}

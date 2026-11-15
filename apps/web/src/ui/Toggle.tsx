@@ -25,6 +25,9 @@ export function Toggle({
       onClick={() => onChange(!checked)}
       className={
         "relative inline-flex h-5 w-9 shrink-0 items-center border transition-colors " +
+        // The drawn switch stays 36x20; the invisible ::before grows the hit
+        // area to ~52x44 so it is tappable on a phone.
+        "before:absolute before:-inset-x-2 before:-inset-y-3 before:content-[''] " +
         "disabled:cursor-not-allowed disabled:opacity-40 " +
         (checked ? "border-neutral-900 bg-neutral-900" : "border-neutral-300 bg-neutral-200")
       }

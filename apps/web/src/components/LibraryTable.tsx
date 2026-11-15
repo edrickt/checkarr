@@ -30,19 +30,58 @@ function canSearch(f: MediaFile): boolean {
   return f.status === "missing" || f.status === "purged";
 }
 
-const COLUMNS: { key: string; label: string; sortable?: SortColumn; numeric?: boolean }[] = [
-  { key: "status", label: "Status", sortable: "status" },
+/**
+ * Phones only get the columns needed to identify and act on a row: the
+ * metrics live on a second line inside the title cell (see the row markup).
+ * The hidden cells stay in the DOM, so sorting and table semantics are the
+ * same at every width. `md` is where the full table fits its own scroller.
+ */
+const COLUMNS: {
+  key: string;
+  label: string;
+  sortable?: SortColumn;
+  numeric?: boolean;
+  desktopOnly?: boolean;
+}[] = [
+  { key: "status", label: "Status", sortable: "status", desktopOnly: true },
   { key: "title", label: "Title", sortable: "title" },
-  { key: "quality", label: "Quality" },
-  { key: "size", label: "Size", sortable: "size", numeric: true },
-  { key: "duration", label: "Duration", numeric: true },
-  { key: "source", label: "Source" },
-  { key: "checked", label: "Checked", sortable: "checked", numeric: true }
+  { key: "quality", label: "Quality", desktopOnly: true },
+  { key: "size", label: "Size", sortable: "size", numeric: true, desktopOnly: true },
+  { key: "duration", label: "Duration", numeric: true, desktopOnly: true },
+  { key: "source", label: "Source", desktopOnly: true },
+  { key: "checked", label: "Checked", sortable: "checked", numeric: true, desktopOnly: true }
 ];
 
-const HEADER_BUTTON =
-  "inline-flex items-center gap-1.5 text-xs font-medium transition-colors " +
-  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-900";
+/**
+ * The muted mobile-only metrics line: everything the hidden columns carried,
+ * minus what does not fit. Values drop whole (never cut mid-value with an
+ * ellipsis): duration goes below 360px, the source is desktop-only because the
+ * row already reads as a movie or an episode and the detail view names it.
+ */
+function MobileMeta({ file }: { file: MediaFile }) {
+  const items = [
+    { key: "quality", value: file.quality, className: "" },
+    { key: "size", value: formatBytes(file.sizeBytes), className: "" },
+    { key: "duration", value: formatDuration(file.durationS), className: "max-[359px]:hidden" },
+    { key: "checked", value: formatRelative(file.checkedAt), className: "" },
+    { key: "source", value: file.sourceName, className: "hidden sm:inline" }
+  ].filter((m) => m.value !== null && m.value !== "-");
+
+  return (
+    <div className="flex min-w-0 items-baseline gap-1.5 text-xs text-neutral-500 md:hidden">
+      {items.map((m, i) => (
+        <span
+          key={m.key}
+          className={
+            "whitespace-nowrap " + (i > 0 ? "before:mr-1.5 before:content-['·'] " : "") + m.className
+          }
+        >
+          {m.value}
+        </span>
+      ))}
+    </div>
+  );
+}
 
 export default function LibraryTable({
   query,
@@ -241,14 +280,14 @@ export default function LibraryTable({
           value={qInput}
           onChange={(e) => setQInput(e.target.value)}
           placeholder="Search title or path"
-          className="min-w-56 flex-1"
+          className="w-full min-w-0 sm:w-auto sm:min-w-56 sm:flex-1"
           aria-label="Search title or path"
         />
         <Select
           aria-label="Filter by status"
           value={query.status}
           onChange={(e) => onQueryChange({ status: e.target.value, page: 1 })}
-          className="w-40"
+          className="w-[calc(50%-0.25rem)] max-[359px]:w-full sm:w-40"
         >
           <option value="">All statuses</option>
           {STATUS_ORDER.map((s) => (
@@ -261,7 +300,7 @@ export default function LibraryTable({
           aria-label="Filter by source"
           value={query.sourceId}
           onChange={(e) => onQueryChange({ sourceId: e.target.value, page: 1 })}
-          className="w-48"
+          className="w-[calc(50%-0.25rem)] max-[359px]:w-full sm:w-48"
         >
           <option value="">All sources</option>
           {(sources.data?.sources ?? []).map((s) => (
@@ -270,7 +309,11 @@ export default function LibraryTable({
             </option>
           ))}
         </Select>
-        <div className="ml-auto text-xs tabular-nums text-neutral-500">{total.toLocaleString()} files</div>
+        {/* The footer already reports the range on phones, so the count
+            would only add a ragged third column there. */}
+        <div className="ml-auto hidden text-xs tabular-nums text-neutral-500 sm:block">
+          {total.toLocaleString()} files
+        </div>
       </div>
 
       {list.isError && (
@@ -279,12 +322,14 @@ export default function LibraryTable({
         </ErrorBanner>
       )}
 
-      {/* The table is its own scroll container so the header can stick while
-          rows scroll, and wide rows scroll horizontally without the page. */}
-      <div className="max-h-[70vh] overflow-auto">
+      {/* md+ keeps the table its own scroll container so the header can stick
+          while rows scroll and wide rows scroll sideways without the page.
+          Phones have no hidden columns left to scroll to, so they scroll with
+          the page instead of trapping touch gestures in a second scroller. */}
+      <div className="md:max-h-[70vh] md:overflow-auto">
         <table className="w-full text-left text-sm">
           <caption className="sr-only">Library files</caption>
-          <thead className="sticky top-0 z-10 bg-white">
+          <thead className="bg-white md:sticky md:top-0 md:z-10">
             <tr>
               {COLUMNS.map((c) => (
                 <th
@@ -300,7 +345,8 @@ export default function LibraryTable({
                       : undefined
                   }
                   className={
-                    "h-9 whitespace-nowrap border-b border-neutral-200 px-3 text-xs font-medium " +
+                    "h-11 whitespace-nowrap border-b border-neutral-200 text-xs font-medium sm:h-9 " +
+                    (c.desktopOnly ? "hidden md:table-cell " : "") +
                     (c.numeric ? "text-right" : "text-left")
                   }
                 >
@@ -309,8 +355,8 @@ export default function LibraryTable({
                       type="button"
                       onClick={() => onSort(c.sortable as SortColumn)}
                       className={
-                        HEADER_BUTTON +
-                        " " +
+                        "flex h-11 w-full items-center gap-1.5 px-3 text-xs font-medium transition-colors sm:h-9 " +
+                        (c.numeric ? "justify-end " : "") +
                         (query.sort === c.sortable
                           ? "text-neutral-900"
                           : "text-neutral-500 hover:text-neutral-900")
@@ -320,13 +366,20 @@ export default function LibraryTable({
                       <SortCaret direction={query.sort === c.sortable ? query.dir : null} />
                     </button>
                   ) : (
-                    <span className="text-neutral-500">{c.label}</span>
+                    <span
+                      className={
+                        "flex h-11 items-center px-3 text-neutral-500 sm:h-9 " +
+                        (c.numeric ? "justify-end" : "")
+                      }
+                    >
+                      {c.label}
+                    </span>
                   )}
                 </th>
               ))}
               <th
                 scope="col"
-                className="h-9 border-b border-neutral-200 px-3 text-right text-xs font-medium text-neutral-500"
+                className="h-11 border-b border-neutral-200 px-3 text-right text-xs font-medium text-neutral-500 sm:h-9"
               >
                 <span className="sr-only">Actions</span>
               </th>
@@ -342,23 +395,27 @@ export default function LibraryTable({
                 }
                 onClick={() => setSelected(f)}
               >
-                <td className="px-3">
+                <td className="hidden px-3 md:table-cell">
                   <StatusBadge status={f.status} />
                 </td>
-                <td className="max-w-[22rem] px-3">
+                <td className="w-full max-w-0 px-3 md:w-auto md:max-w-[22rem]">
+                  <div className="md:hidden">
+                    <StatusBadge status={f.status} />
+                  </div>
                   <div className="truncate text-sm text-neutral-900">{f.title}</div>
                   {f.subtitle && <div className="truncate text-xs text-neutral-500">{f.subtitle}</div>}
+                  <MobileMeta file={f} />
                 </td>
-                <td className="px-3 text-sm text-neutral-700">{f.quality ?? "-"}</td>
-                <td className="px-3 text-right text-sm tabular-nums text-neutral-700">
+                <td className="hidden px-3 text-sm text-neutral-700 md:table-cell">{f.quality ?? "-"}</td>
+                <td className="hidden px-3 text-right text-sm tabular-nums text-neutral-700 md:table-cell">
                   {formatBytes(f.sizeBytes)}
                 </td>
-                <td className="px-3 text-right text-sm tabular-nums text-neutral-700">
+                <td className="hidden px-3 text-right text-sm tabular-nums text-neutral-700 md:table-cell">
                   {formatDuration(f.durationS)}
                 </td>
-                <td className="px-3 text-sm text-neutral-700">{f.sourceName}</td>
+                <td className="hidden px-3 text-sm text-neutral-700 md:table-cell">{f.sourceName}</td>
                 <td
-                  className="px-3 text-right text-xs tabular-nums text-neutral-500"
+                  className="hidden px-3 text-right text-xs tabular-nums text-neutral-500 md:table-cell"
                   title={formatWhen(f.checkedAt)}
                 >
                   {formatRelative(f.checkedAt)}

@@ -139,10 +139,17 @@ export default function DetailModal({ file, onClose }: { file: MediaFile; onClos
   ];
 
   return (
-    <Modal ariaLabel={f.title} onClose={onClose}>
-      <div className="mb-4 flex items-start justify-between gap-4 border-b border-neutral-200 pb-4">
+    <Modal ariaLabel={f.title} onClose={onClose} mobileSheet>
+      {/* Sticky on phones so the title and Close stay put while the metadata
+          and ffmpeg findings scroll; the static desktop header is unchanged.
+          The sheet has no panel padding on phones (the body owns it) so the
+          header can stick flush to the top instead of leaving a see-through
+          band above it. */}
+      <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-neutral-200 bg-white px-4 pb-4 pt-[calc(1rem_+_env(safe-area-inset-top))] sm:static sm:mb-4 sm:px-0 sm:pt-0">
         <div className="min-w-0">
-          <h2 className="truncate text-xl font-semibold tracking-tight text-neutral-900">{f.title}</h2>
+          <h2 className="break-words text-xl font-semibold tracking-tight text-neutral-900 sm:truncate">
+            {f.title}
+          </h2>
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-neutral-600">
             <span>{f.subtitle ?? (f.kind === "movie" ? "Movie" : "Episode")}</span>
             <StatusBadge status={f.status} />
@@ -160,7 +167,7 @@ export default function DetailModal({ file, onClose }: { file: MediaFile; onClos
         </Button>
       </div>
 
-      <div className="space-y-5">
+      <div className="space-y-5 p-4 sm:p-0">
         <div className="flex flex-wrap items-center gap-2">
           {searchable && (
             <Button onClick={() => research.mutate()} disabled={research.isPending}>
@@ -205,9 +212,18 @@ export default function DetailModal({ file, onClose }: { file: MediaFile; onClos
           </div>
         )}
 
-        <dl className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3">
-          {metadata.map((m) => (
-            <div key={m.label}>
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3 sm:gap-x-6">
+          {metadata.map((m, i) => (
+            // Two columns on phones: when the count is odd the last value
+            // (checked) takes the full width instead of wrapping mid-date.
+            <div
+              key={m.label}
+              className={
+                i === metadata.length - 1 && metadata.length % 2 === 1
+                  ? "col-span-2 sm:col-span-1"
+                  : undefined
+              }
+            >
               <dt className="text-xs text-neutral-500">{m.label}</dt>
               <dd className="mt-0.5 text-sm text-neutral-700">{m.value}</dd>
             </div>

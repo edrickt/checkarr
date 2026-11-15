@@ -13,12 +13,20 @@ export function Modal({
   onClose,
   children,
   ariaLabel,
-  panelClassName = "max-w-3xl"
+  panelClassName = "max-w-3xl",
+  mobileSheet = false
 }: {
   onClose: () => void;
   children: ReactNode;
   ariaLabel: string;
   panelClassName?: string;
+  /**
+   * Phone-only: fill the visual viewport instead of floating a desktop-sized
+   * dialog in it. Used by the file detail view, where the content is long and
+   * the surrounding page is the thing being dismissed. Small dialogs (confirm)
+   * keep the centered panel at every width.
+   */
+  mobileSheet?: boolean;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -75,7 +83,10 @@ export function Modal({
       role="dialog"
       aria-modal="true"
       aria-label={ariaLabel}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-950/40 p-4"
+      className={
+        "fixed inset-0 z-50 flex items-center justify-center bg-neutral-950/40 " +
+        (mobileSheet ? "p-0 sm:p-4" : "p-4")
+      }
       onMouseDown={onClose}
     >
       <div
@@ -83,7 +94,10 @@ export function Modal({
         tabIndex={-1}
         onMouseDown={(e) => e.stopPropagation()}
         className={
-          "max-h-[90vh] w-full overflow-y-auto border border-neutral-200 bg-white p-5 shadow-[0_24px_64px_-24px_rgba(0,0,0,0.4)] focus:outline-none " +
+          "w-full overflow-y-auto bg-white shadow-[0_24px_64px_-24px_rgba(0,0,0,0.4)] focus:outline-none " +
+          (mobileSheet
+            ? "h-[100dvh] max-h-[100dvh] border-0 p-0 pb-[calc(0.5rem_+_env(safe-area-inset-bottom))] sm:h-auto sm:max-h-[calc(100dvh_-_2rem)] sm:border sm:border-neutral-200 sm:p-5 "
+            : "max-h-[calc(100dvh_-_2rem)] border border-neutral-200 p-5 ") +
           panelClassName
         }
       >

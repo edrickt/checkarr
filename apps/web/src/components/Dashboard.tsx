@@ -262,7 +262,7 @@ export default function Dashboard({
   ];
 
   return (
-    <div className="space-y-10">
+    <div className="space-y-8 sm:space-y-10">
       {settings.isError && (
         <ErrorBanner>
           Could not load settings: {(settings.error as Error)?.message ?? "unknown error"} - scan options may
@@ -292,13 +292,13 @@ export default function Dashboard({
           <h1 className="text-xl font-semibold tracking-tight text-neutral-900">Library health</h1>
           <p className="mt-1 text-sm text-neutral-600">{subtitle}</p>
         </div>
-        <label className="flex items-center gap-2 text-xs text-neutral-500">
+        <label className="flex w-full items-center gap-2 text-xs text-neutral-500 sm:w-auto">
           Library
           <Select
             value={scope}
             onChange={(e) => onScopeChange(e.target.value)}
             title="Scan, delete and search act on the selected library"
-            className="w-auto"
+            className="flex-1 sm:flex-none"
           >
             <option value="">All libraries</option>
             {(sources.data?.sources ?? []).map((s) => (
@@ -341,7 +341,7 @@ export default function Dashboard({
         </section>
       ) : (
         <>
-          <section aria-labelledby="scan-heading" className="border-t border-neutral-200 pt-6">
+          <section aria-labelledby="scan-heading" className="border-t border-neutral-200 pt-5 sm:pt-6">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="max-w-xl">
                 <h2 id="scan-heading" className="text-sm font-semibold text-neutral-900">
@@ -377,7 +377,7 @@ export default function Dashboard({
             )}
           </section>
 
-          <section aria-labelledby="attention-heading" className="border-t border-neutral-200 pt-6">
+          <section aria-labelledby="attention-heading" className="border-t border-neutral-200 pt-5 sm:pt-6">
             <div className="flex items-start justify-between gap-4">
               <div className="max-w-xl">
                 <h2 id="attention-heading" className="text-sm font-semibold text-neutral-900">
@@ -404,8 +404,11 @@ export default function Dashboard({
                 const count = byStatus[status] ?? 0;
                 const deleting = purge.isPending && purge.variables?.status === status;
                 return (
-                  <li key={status} className="flex flex-wrap items-center gap-x-4 gap-y-2 py-3">
-                    <div className="flex w-44 shrink-0 items-center gap-2">
+                  <li
+                    key={status}
+                    className="grid gap-y-1.5 py-3 sm:flex sm:flex-wrap sm:items-center sm:gap-x-4 sm:gap-y-2"
+                  >
+                    <div className="flex items-center gap-2 sm:w-44 sm:shrink-0">
                       <span
                         aria-hidden="true"
                         className={"inline-block h-1.5 w-1.5 rounded-full " + meta.dot}
@@ -420,8 +423,8 @@ export default function Dashboard({
                       </span>
                       <span className="text-xs tabular-nums text-neutral-500">{count}</span>
                     </div>
-                    <p className="min-w-0 flex-1 text-sm text-neutral-600">{meta.description}</p>
-                    <div className="flex shrink-0 items-center gap-2">
+                    <p className="min-w-0 text-sm text-neutral-600 sm:flex-1">{meta.description}</p>
+                    <div className="flex items-center justify-end gap-2 sm:shrink-0 sm:justify-start">
                       <Button
                         size="sm"
                         variant="ghost"
@@ -448,7 +451,7 @@ export default function Dashboard({
             </ul>
           </section>
 
-          <section aria-labelledby="waiting-heading" className="border-t border-neutral-200 pt-6">
+          <section aria-labelledby="waiting-heading" className="border-t border-neutral-200 pt-5 sm:pt-6">
             <div className="max-w-xl">
               <h2 id="waiting-heading" className="text-sm font-semibold text-neutral-900">
                 Waiting on the *arr
@@ -464,8 +467,11 @@ export default function Dashboard({
                 const count = byStatus[status] ?? 0;
                 const searching = research.isPending && research.variables?.status === status;
                 return (
-                  <li key={status} className="flex flex-wrap items-center gap-x-4 gap-y-2 py-3">
-                    <div className="flex w-44 shrink-0 items-center gap-2">
+                  <li
+                    key={status}
+                    className="grid gap-y-1.5 py-3 sm:flex sm:flex-wrap sm:items-center sm:gap-x-4 sm:gap-y-2"
+                  >
+                    <div className="flex items-center gap-2 sm:w-44 sm:shrink-0">
                       <span
                         aria-hidden="true"
                         className={"inline-block h-1.5 w-1.5 rounded-full " + meta.dot}
@@ -480,8 +486,10 @@ export default function Dashboard({
                       </span>
                       <span className="text-xs tabular-nums text-neutral-500">{count}</span>
                     </div>
-                    <p className="min-w-0 flex-1 text-sm text-neutral-600">{WAITING_DESCRIPTIONS[status]}</p>
-                    <div className="flex shrink-0 items-center gap-2">
+                    <p className="min-w-0 text-sm text-neutral-600 sm:flex-1">
+                      {WAITING_DESCRIPTIONS[status]}
+                    </p>
+                    <div className="flex items-center justify-end gap-2 sm:shrink-0 sm:justify-start">
                       <Button
                         size="sm"
                         variant="ghost"
@@ -512,7 +520,7 @@ export default function Dashboard({
             </ul>
           </section>
 
-          <section aria-labelledby="library-heading" className="border-t border-neutral-200 pt-6">
+          <section aria-labelledby="library-heading" className="border-t border-neutral-200 pt-5 sm:pt-6">
             <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
               <h2 id="library-heading" className="text-sm font-semibold text-neutral-900">
                 Library
@@ -522,14 +530,14 @@ export default function Dashboard({
                 <button
                   type="button"
                   onClick={() => goLibrary("unchecked")}
-                  className="transition-colors hover:text-neutral-900 hover:underline hover:underline-offset-2"
+                  className="-my-2.5 inline-flex items-center gap-1 py-2.5 transition-colors hover:text-neutral-900 hover:underline hover:underline-offset-2"
                 >
                   Unchecked <span className="tabular-nums text-neutral-900">{byStatus.unchecked ?? 0}</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => goLibrary("healthy")}
-                  className="transition-colors hover:text-neutral-900 hover:underline hover:underline-offset-2"
+                  className="-my-2.5 inline-flex items-center gap-1 py-2.5 transition-colors hover:text-neutral-900 hover:underline hover:underline-offset-2"
                 >
                   Healthy <span className="tabular-nums text-neutral-900">{byStatus.healthy ?? 0}</span>
                 </button>
@@ -537,7 +545,10 @@ export default function Dashboard({
             </div>
           </section>
 
-          <section aria-labelledby="checks-heading" className="space-y-4 border-t border-neutral-200 pt-6">
+          <section
+            aria-labelledby="checks-heading"
+            className="space-y-4 border-t border-neutral-200 pt-5 sm:pt-6"
+          >
             <h2 id="checks-heading" className="sr-only">
               Scan history and how checks work
             </h2>

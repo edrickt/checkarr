@@ -19,9 +19,10 @@ const VARIANTS: Record<ButtonVariant, string> = {
     "border-neutral-300 bg-white text-red-700 hover:border-red-300 hover:bg-red-50 active:bg-red-100"
 };
 
+// 40px tall on phones (pointer: coarse targets), the dense h-8/h-9 at sm+.
 const SIZES: Record<ButtonSize, string> = {
-  sm: "h-8 px-2.5 text-xs",
-  md: "h-9 px-3 text-sm"
+  sm: "h-10 px-3 text-sm sm:h-8 sm:px-2.5 sm:text-xs",
+  md: "h-10 px-3 text-sm sm:h-9 sm:px-3 sm:text-sm"
 };
 
 export function Button({
