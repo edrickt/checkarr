@@ -71,6 +71,31 @@ Max two type sizes per component.
 - Controls align on a shared height: inputs/selects/buttons `h-8` (sm) or `h-9` (md);
   never mixed heights in one row. Radius: none. Square is the system.
 
+## Responsive
+
+The same system, not a second one: no cards, no mobile-only chrome. Two
+breakpoints do all the work.
+
+- `sm` (640px) - density and control size. Below it the app runs the phone scale:
+  every button/input/select is `h-10` (40px) with `text-base` fields, so iOS does
+  not zoom the page on focus; table headers are 44px tall and the toggle's hit area
+  is grown to ~52x44 with a pseudo-element while the drawn switch stays 36x20.
+  From `sm` up, the `h-8`/`h-9` dense sizes apply.
+- `md` (768px) - the library table. Above it the table keeps its own scroll
+  container and all seven columns; below it the metric columns fold into the title
+  cell and the table has no constrained height or horizontal scroll (one scroll
+  axis per screen).
+- Status rows on the dashboard stack below `sm`: label + count, full-width
+  description, then the action pair right-aligned. The fixed 176px label column is
+  desktop-only.
+- Overlays: the file detail view is a full-height sheet on phones (`100dvh`, sticky
+  header, safe-area bottom); small dialogs (confirm) stay centered. Toasts sit
+  full-width above the home indicator on phones and bottom-right from `sm` up.
+- Viewport units are `dvh`/`min-h-dvh`, and anything pinned to an edge respects
+  `env(safe-area-inset-*)` (the viewport meta uses `viewport-fit=cover`).
+- No page-level horizontal scrolling at any width; long values truncate, they never
+  push the layout.
+
 ## Components
 
 **Button** (`ui/Button.tsx`). Variants:
@@ -140,10 +165,12 @@ use a text label instead.
    `dot + label + count | one-line meaning | Review (ghost link) | Delete & re-search
 (dangerOutline, disabled at 0)`. Section-level overflow menu (kebab, text label
    "More") holds the rare "Delete everything in scope…" action with confirm.
+   Below `sm` the row stacks: label + count, full-width description, actions right-aligned.
 4. *_Waiting on the *arr*_: missing / purged as rows:
    `dot + label + count | meaning | Review | Search now` (default button; disabled at 0).
    This is where purged items become searchable. Missing and purged are separate rows
-   so the search action is explicit about what it targets.
+   so the search action is explicit about what it targets. Stacks like Needs attention
+   below `sm`.
 5. **Library**: unchecked and healthy counts as a compact two-item line, each linking to
    the filtered library; total tracked.
 6. **Footer**: one compact last-scan line (when, scope, files, issues — or "No scan has
@@ -161,7 +188,9 @@ library scope. Keep the scope in the hash.
 - Table: sticky header, hairline rows, status dot+label, title with muted subtitle,
   quality, size, duration, source, checked (relative with absolute title). Numeric
   columns right-aligned with tabular figures. Sortable headers are buttons with a drawn
-  caret, active column in `neutral-900`.
+  caret, active column in `neutral-900`. Below `md` the table shows title + actions only:
+  the title cell carries the status badge, the subtitle, and a muted
+  `quality · size · duration · source · checked` line, and the header stays static.
 - Row click opens the detail modal; the actions menu stops propagation.
 - Row menu: Details; Re-check now; **Search now** (missing/purged only); Delete &
   re-search (only when the file is on disk: corrupt/suspect/unreachable/healthy/unchecked
@@ -179,7 +208,9 @@ missing/purged, Re-check now, Delete & re-search, Jump to middle only when playa
 → non-playable explanation or player → metadata grid (status, source, quality, size,
 duration, container, video, audio, checked) with 12px muted labels → path → ffmpeg
 findings in a `neutral-50` code block with `neutral-600` mono text; error text `red-700`.
-Square, no rounded corners.
+Square, no rounded corners. On phones it is a full-height sheet: sticky header, body
+padding owned by the content, the last metadata row spanning both columns, and the
+bottom padded for the home indicator.
 
 ### Settings
 
@@ -193,7 +224,8 @@ Four sections, each `text-sm font-semibold` heading + one-line muted description
    each with a visible label and a `text-xs text-neutral-500` help line; resolved
    binaries shown as a muted mono line that wraps.
 3. **Path mappings** — explanation line, rows of From/To inputs with labelled columns
-   and Remove; Add mapping.
+   and Remove; Add mapping. Below `sm` the column header is replaced by a visible label
+   above each field.
 4. **Network & server** — local broadcasting row (toggle + explanation + HOST warning),
    current listen address, Restart server (default) with confirm. Save changes at the
    end of the form that owns it (checker settings), disabled until dirty.
