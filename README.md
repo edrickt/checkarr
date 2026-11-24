@@ -10,7 +10,7 @@ A locally hosted media integrity checker for Radarr and Sonarr libraries. It act
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE) ![Node 23.4+](https://img.shields.io/badge/Node-23.4%2B-blue) ![pnpm 11](https://img.shields.io/badge/pnpm-11-orange)
 
-![Checkarr demo — dashboard counts, scan menu, and source settings](docs/checkarr_demo.gif)
+![Checkarr demo — library health, the scan menu and live scan progress, a suspect file's ffmpeg findings, and source settings](docs/checkarr_demo.gif)
 
 - [Features](#features) · [How it works](#how-it-works) · [Try it in 30 seconds](#try-it-in-30-seconds) · [Install](#install) · [Configuration](#configuration) · [API](#api) · [For developers](#for-developers) · [Security](#security) · [License](#license)
 
