@@ -1,4 +1,8 @@
 import type { DB } from "../db.js";
+import { mapLimit } from "../lib/map-limit.js";
+
+/** How many per-series episode requests run at once during a Sonarr sync. */
+const EPISODE_FETCH_CONCURRENCY = 6;
 
 export interface SyncEntry {
   externalId: string;
@@ -254,10 +258,14 @@ export async function sonarrEntries(baseUrl: string, apiKey: string): Promise<Sy
     await fetchArr(baseUrl, apiKey, "/api/v3/series"),
     "GET /api/v3/series"
   );
-  const out: SyncEntry[] = [];
   // Sonarr's /api/v3/episode requires a seriesId (bare calls get HTTP 400) and only
-  // embeds episodeFile when includeEpisodeFile=true, so fetch series by series.
-  for (const rawSeries of series) {
+  // embeds episodeFile when includeEpisodeFile=true, so one request per series.
+  // Fan them out with a small bounded pool instead of awaiting them one by
+  // one: the whole loop runs under the global batch gate, so a serial loop
+  // blocked every scan/purge for seriesCount x *arr latency. mapLimit keeps
+  // the per-series slots in input order, so syncSource's upsert order (and its
+  // row ids) stay deterministic.
+  const perSeries = await mapLimit(series, EPISODE_FETCH_CONCURRENCY, async (rawSeries) => {
     const s = expectEntry<SonarrSeries>(rawSeries, "GET /api/v3/series");
     requireNumericId(s, "GET /api/v3/series");
     const episodesUrl = "/api/v3/episode?seriesId=" + s.id + "&includeEpisodeFile=true";
@@ -276,14 +284,16 @@ export async function sonarrEntries(baseUrl: string, apiKey: string): Promise<Sy
         { cause: err }
       );
     }
+    const out: SyncEntry[] = [];
     for (const rawEpisode of episodes) {
       const e = expectEntry<SonarrEpisode>(rawEpisode, "GET " + episodesUrl);
       requireNumericId(e, "GET " + episodesUrl);
       const entry = sonarrEntry(s, e);
       if (entry !== null) out.push(entry);
     }
-  }
-  return out;
+    return out;
+  });
+  return perSeries.flat();
 }
 
 export interface SourceCore {

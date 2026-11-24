@@ -1,4 +1,5 @@
 import type { DB } from "../db.js";
+import { mapLimit } from "../lib/map-limit.js";
 import { fetchArr } from "./sync.js";
 
 export interface PurgeSourceResult {
@@ -26,20 +27,6 @@ interface PurgeRow {
   name: string;
   base_url: string;
   api_key: string;
-}
-
-async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-  const out: R[] = new Array(items.length);
-  let next = 0;
-  const workers = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async () => {
-    for (;;) {
-      const idx = next++;
-      if (idx >= items.length) return;
-      out[idx] = await fn(items[idx]);
-    }
-  });
-  await Promise.all(workers);
-  return out;
 }
 
 interface RadarrMovieDetail {

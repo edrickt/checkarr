@@ -870,3 +870,90 @@ describe("sync", () => {
     });
   });
 });
+
+describe("sonarr episode fan-out", () => {
+  it("fetches series episode lists in bounded parallel waves, not one serial await per series", async () => {
+    // Sonarr's /api/v3/episode needs one request per series. Awaiting them one
+    // after another held the global batch slot for seriesCount x latency, so a
+    // 200-series library blocked every scan/purge for tens of seconds.
+    const SERIES_COUNT = 8;
+    const DELAY_MS = 150;
+    const seriesList = Array.from({ length: SERIES_COUNT }, (_, i) => ({
+      id: 500 + i,
+      title: "Show " + i
+    }));
+    let inFlight = 0;
+    let maxInFlight = 0;
+    let episodeRequests = 0;
+    const fanout = createServer((req, res) => {
+      if (req.headers["x-api-key"] !== "good-key") {
+        res.writeHead(401, { "content-type": "application/json" }).end("{}");
+        return;
+      }
+      const json = (body: unknown) =>
+        res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(body));
+      const u = new URL(req.url ?? "/", "http://localhost");
+      if (u.pathname === "/api/v3/series") return json(seriesList);
+      if (u.pathname === "/api/v3/episode") {
+        const sid = Number(u.searchParams.get("seriesId"));
+        episodeRequests++;
+        inFlight++;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        setTimeout(() => {
+          inFlight--;
+          json([
+            {
+              id: sid * 10,
+              seriesId: sid,
+              seasonNumber: 1,
+              episodeNumber: 1,
+              title: "Ep",
+              monitored: true,
+              episodeFile: { path: "/tv/" + sid + "/s01e01.mkv", size: 10, quality: null }
+            },
+            {
+              id: sid * 10 + 1,
+              seriesId: sid,
+              seasonNumber: 1,
+              episodeNumber: 2,
+              title: "Ep2",
+              monitored: true,
+              episodeFile: { path: "/tv/" + sid + "/s01e02.mkv", size: 11, quality: null }
+            }
+          ]);
+        }, DELAY_MS);
+        return;
+      }
+      res.writeHead(404).end("{}");
+    });
+    await new Promise<void>((resolve) => fanout.listen(0, "127.0.0.1", resolve));
+    const fanoutUrl = "http://127.0.0.1:" + (fanout.address() as { port: number }).port;
+    try {
+      const db = makeDb();
+      const src = insertSource(db, "sonarr", fanoutUrl, "good-key");
+      const startedAt = Date.now();
+      const result = await syncSource(db, src);
+      const elapsed = Date.now() - startedAt;
+      expect(episodeRequests).toBe(SERIES_COUNT);
+      // Serial would be (SERIES_COUNT + 1) x DELAY_MS = 1350ms; a bounded pool
+      // finishes in a handful of waves. The margin absorbs CI jitter while
+      // staying far below the serial floor.
+      expect(maxInFlight).toBeGreaterThan(1);
+      expect(elapsed).toBeLessThan(SERIES_COUNT * DELAY_MS);
+      // Same rows as the serial path, in a deterministic (series) order.
+      expect(result.total).toBe(SERIES_COUNT * 2);
+      const rows = db.prepare("SELECT external_id, path FROM media_files ORDER BY id").all() as {
+        external_id: string;
+        path: string;
+      }[];
+      expect(rows).toHaveLength(SERIES_COUNT * 2);
+      expect(rows.map((r) => r.external_id)).toEqual(
+        seriesList.flatMap((s) => [String(s.id * 10), String(s.id * 10 + 1)])
+      );
+      expect(rows[0].path).toBe("/tv/500/s01e01.mkv");
+      expect(rows[rows.length - 1].path).toBe("/tv/" + (500 + SERIES_COUNT - 1) + "/s01e02.mkv");
+    } finally {
+      await new Promise<void>((resolve) => fanout.close(() => resolve()));
+    }
+  });
+});
