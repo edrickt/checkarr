@@ -807,59 +807,64 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager, se
   });
 
   app.post("/api/files/:id/recheck", async (req) => {
-    if (scans.isActive()) throw new ApiError(409, "A scan is running - wait for it to finish or cancel it");
     const id = Number((req.params as { id: string }).id);
     if (!Number.isInteger(id)) throw new ApiError(400, "invalid file id");
-    const row = getFileWithSource(id);
-    if (!row) throw new ApiError(404, "file not found");
-    // Sync the item before judging it: the row in our DB may predate the
-    // download. Without this a 'missing' row could never leave 'missing' by
-    // re-checking - the file only lands via a full library sync.
-    const synced = await syncSingleItem(row, "re-check");
-    if (!synced.found)
-      throw new ApiError(404, "the *arr no longer has this item - it was removed during sync");
-    // A scan can claim the manager while this item sync was in flight; don't
-    // decode/persist a verdict over the scan's work.
-    if (scans.isActive()) throw new ApiError(409, "a scan started while this item was syncing - try again");
-    const file = db.prepare("SELECT id, path, status FROM media_files WHERE id = ?").get(id) as
-      { id: number; path: string | null; status: string } | undefined;
-    if (!file) throw new ApiError(404, "file not found");
-    let outcome: CheckOutcome;
-    if (file.path === null) {
-      // Monitored with no file at the *arr (re-verified by the sync above):
-      // nothing to decode, report missing without spinning up ffmpeg. A
-      // purged row goes through the same persist guard as any verdict, so it
-      // stays purged while it waits for its replacement.
-      outcome = {
-        status: "missing",
-        detail: "no file at the *arr - monitored, not downloaded yet",
-        probe: null
-      };
-    } else {
-      const settings = getSettings(db);
-      const binaries = resolveBinaries(settings);
-      const problem = await binariesUsable(binaries);
-      if (problem) throw new ApiError(400, problem);
-      outcome = await checkMediaFile(file.path, { binaries, mappings: settings.pathMappings });
-    }
-    const verdict = persistCheckOutcome(db, file, outcome);
-    if (verdict.wrote) return { id: file.id, status: verdict.status, detail: outcome.detail };
-    if (verdict.reason === "purged-awaiting-replacement") {
+    // Re-check is a media-mutating per-file operation like delete/re-search: it
+    // decodes for up to minutes and then writes a verdict, so it takes the same
+    // batch slot. Holding the gate for the whole body means a purge (or a scan)
+    // cannot unlink the file mid-decode and interleave a write, and the second
+    // isActive() check the item sync used to need is gone: no scan can start
+    // while the gate is held.
+    return runBatch("re-check", async () => {
+      if (scans.isActive()) throw new ApiError(409, "A scan is running - wait for it to finish or cancel it");
+      const row = getFileWithSource(id);
+      if (!row) throw new ApiError(404, "file not found");
+      // Sync the item before judging it: the row in our DB may predate the
+      // download. Without this a 'missing' row could never leave 'missing' by
+      // re-checking - the file only lands via a full library sync.
+      const synced = await syncSingleItem(row, "re-check");
+      if (!synced.found)
+        throw new ApiError(404, "the *arr no longer has this item - it was removed during sync");
+      const file = db.prepare("SELECT id, path, status FROM media_files WHERE id = ?").get(id) as
+        { id: number; path: string | null; status: string } | undefined;
+      if (!file) throw new ApiError(404, "file not found");
+      let outcome: CheckOutcome;
+      if (file.path === null) {
+        // Monitored with no file at the *arr (re-verified by the sync above):
+        // nothing to decode, report missing without spinning up ffmpeg. A
+        // purged row goes through the same persist guard as any verdict, so it
+        // stays purged while it waits for its replacement.
+        outcome = {
+          status: "missing",
+          detail: "no file at the *arr - monitored, not downloaded yet",
+          probe: null
+        };
+      } else {
+        const settings = getSettings(db);
+        const binaries = resolveBinaries(settings);
+        const problem = await binariesUsable(binaries);
+        if (problem) throw new ApiError(400, problem);
+        outcome = await checkMediaFile(file.path, { binaries, mappings: settings.pathMappings });
+      }
+      const verdict = persistCheckOutcome(db, file, outcome);
+      if (verdict.wrote) return { id: file.id, status: verdict.status, detail: outcome.detail };
+      if (verdict.reason === "purged-awaiting-replacement") {
+        return {
+          id: file.id,
+          status: "purged",
+          detail: "replacement not on disk yet - kept purged; sync to pick up the new download"
+        };
+      }
+      // The row was relinked to a new download (or removed) while the check ran.
+      const cur = db.prepare("SELECT id, status FROM media_files WHERE id = ?").get(file.id) as
+        { id: number; status: string } | undefined;
+      if (!cur) throw new ApiError(404, "file not found");
       return {
-        id: file.id,
-        status: "purged",
-        detail: "replacement not on disk yet - kept purged; sync to pick up the new download"
+        id: cur.id,
+        status: cur.status,
+        detail: "the *arr replaced this file during the recheck - verdict discarded, run it again"
       };
-    }
-    // The row was relinked to a new download (or removed) while the check ran.
-    const cur = db.prepare("SELECT id, status FROM media_files WHERE id = ?").get(file.id) as
-      { id: number; status: string } | undefined;
-    if (!cur) throw new ApiError(404, "file not found");
-    return {
-      id: cur.id,
-      status: cur.status,
-      detail: "the *arr replaced this file during the recheck - verdict discarded, run it again"
-    };
+    });
   });
 
   // Range-aware streaming for the manual in-browser player.

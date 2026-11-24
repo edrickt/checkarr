@@ -45,12 +45,15 @@ export type PersistVerdict =
  *   the check runs; a verdict computed from the old path must not overwrite
  *   the new file's state, so it is discarded when the path has moved.
  * - A purged row ("Delete & re-search") is expected to have no file on disk
- *   until the replacement lands: a re-check that finds it gone keeps the row
- *   purged instead of demoting it to 'missing'. Sync swaps in the new
- *   download (even under a different filename) or drops the row. The purged
- *   status is checked on the row as it is now, not only on the snapshot the
+ *   until the replacement lands. Its file was deleted on purpose, so *every*
+ *   outcome computed while the purge landed describes bytes that no longer
+ *   exist (POSIX keeps the inode readable after unlink, so the last decode
+ *   step can still report healthy) - refuse it and keep the row purged instead
+ *   of replacing 'purged' with a verdict about a deleted file. Sync swaps in
+ *   the new download (even under a different filename) or drops the row. The
+ *   purged status is checked on the row as it is now and on the snapshot the
  *   check started with: a purge can land while a re-check of the same file is
- *   still decoding.
+ *   still decoding, and a sync can reset a purged row before the verdict lands.
  */
 export function persistCheckOutcome(
   db: DB,
@@ -60,7 +63,7 @@ export function persistCheckOutcome(
   const cur = db.prepare("SELECT path, status FROM media_files WHERE id = ?").get(file.id) as
     { path: string; status: string } | undefined;
   if (!cur || cur.path !== file.path) return { wrote: false, reason: "row-changed" };
-  if ((file.status === "purged" || cur.status === "purged") && outcome.status === "missing") {
+  if (file.status === "purged" || cur.status === "purged") {
     return { wrote: false, reason: "purged-awaiting-replacement" };
   }
   persistOutcome(db, file.id, outcome);

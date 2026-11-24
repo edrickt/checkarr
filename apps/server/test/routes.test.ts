@@ -881,6 +881,33 @@ describe("batch operation gate", () => {
       await sleep(50);
     }
   });
+  it("rejects a per-file re-check while another batch operation holds the gate", async () => {
+    // The re-check decodes for up to minutes and then writes a verdict. It used
+    // to run outside the gate, so a concurrent Delete & re-search could unlink
+    // the file while ffmpeg still had it open, and the in-flight verdict landed
+    // on the purged row. One batch slot means one writer.
+    heldMovieLists = [];
+    let syncPromise: InjectResult | null = null;
+    try {
+      syncPromise = app.inject({ method: "POST", url: "/api/sync", payload: {} });
+      await waitHeld(1);
+
+      const re = await app.inject({ method: "POST", url: "/api/files/" + fileId + "/recheck" });
+      expect(re.statusCode).toBe(409);
+      expect(re.json().error).toMatch(/another library operation \(sync\) is running/);
+      // The refused re-check touched nothing: no item sync, no verdict.
+      expect((db.prepare("SELECT path, status FROM media_files WHERE id = ?").get(fileId) as any).path).toBe(
+        path.join(dir, "media.mp4")
+      );
+
+      releaseMovieLists();
+      expect((await syncPromise).statusCode).toBe(200);
+    } finally {
+      releaseMovieLists();
+      await Promise.allSettled([syncPromise ?? Promise.resolve()]);
+      await sleep(50);
+    }
+  });
 });
 
 describe("re-search (bulk)", () => {

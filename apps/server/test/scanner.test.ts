@@ -329,6 +329,50 @@ describe("persistCheckOutcome guard", () => {
     );
   });
 
+  it("refuses every verdict - not only missing - once the row is purged", () => {
+    const db = makeDb();
+    const fileId = seedFile(db);
+    // The last decode step had already opened the file when the purge unlinked
+    // it (POSIX keeps the inode readable), so the in-flight check reports the
+    // old bytes as healthy/corrupt. Those verdicts must not overwrite 'purged',
+    // or the deleted row reappears as fine and is never offered a replacement
+    // search.
+    db.prepare("UPDATE media_files SET status = 'purged' WHERE id = ?").run(fileId);
+    for (const status of ["healthy", "corrupt", "suspect", "unreachable"] as const) {
+      const verdict = persistCheckOutcome(
+        db,
+        { id: fileId, path: "/movies/a.mkv", status: "healthy" },
+        { status, detail: null, probe: null }
+      );
+      expect(verdict).toEqual({ wrote: false, reason: "purged-awaiting-replacement" });
+      expect((db.prepare("SELECT status FROM media_files WHERE id = ?").get(fileId) as any).status).toBe(
+        "purged"
+      );
+    }
+  });
+
+  it("refuses a verdict computed before the row was purged, even after a sync reset it", () => {
+    const db = makeDb();
+    const fileId = seedFile(db);
+    // The re-check started on a purged row; before the verdict landed a sync saw
+    // a replacement download at the same path and reset the row to unchecked.
+    // The decode read the old inode, so its verdict describes bytes that are
+    // gone: drop it and let the next unchecked scan judge the new file.
+    const startedWith = { id: fileId, path: "/movies/a.mkv", status: "purged" };
+    db.prepare("UPDATE media_files SET status = 'unchecked' WHERE id = ?").run(fileId);
+
+    const verdict = persistCheckOutcome(db, startedWith, {
+      status: "healthy",
+      detail: null,
+      probe: null
+    });
+
+    expect(verdict).toEqual({ wrote: false, reason: "purged-awaiting-replacement" });
+    expect((db.prepare("SELECT status FROM media_files WHERE id = ?").get(fileId) as any).status).toBe(
+      "unchecked"
+    );
+  });
+
   it("still discards a verdict when sync relinked the row mid-check", () => {
     const db = makeDb();
     const fileId = seedFile(db);
