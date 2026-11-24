@@ -235,6 +235,7 @@ export default function SettingsPage() {
     mutationFn: (s: Source) => api.deleteSource(s.id),
     onSuccess: (_data, s) => {
       toast.success("Source '" + s.name + "' deleted");
+      clearTestResult(s.id);
       invalidate();
       queryClient.invalidateQueries({ queryKey: ["files"] });
       queryClient.invalidateQueries({ queryKey: ["stats"] });
@@ -268,6 +269,18 @@ export default function SettingsPage() {
     },
     onError: (err: Error) => toast.error("Test failed: " + err.message)
   });
+
+  // A recorded result describes the URL/key pair that was tested. Drop it as
+  // soon as either field is edited (not only when the edit is saved), so the
+  // green "OK: Radarr 5.2.6" line can never outlive the configuration it came
+  // from.
+  const clearTestResult = (id: number) =>
+    setTestResults((prev) => {
+      if (!Object.hasOwn(prev, id)) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
 
   const syncSource = useMutation({
     mutationFn: (id: number) => api.sync(id),
@@ -347,7 +360,10 @@ export default function SettingsPage() {
                       <Input
                         id={"source-" + editing.id + "-url"}
                         value={editing.baseUrl}
-                        onChange={(e) => setEditing({ ...editing, baseUrl: e.target.value })}
+                        onChange={(e) => {
+                          clearTestResult(editing.id);
+                          setEditing({ ...editing, baseUrl: e.target.value });
+                        }}
                         placeholder="http://localhost:7878"
                         className="w-full"
                       />
@@ -360,7 +376,10 @@ export default function SettingsPage() {
                       <Input
                         id={"source-" + editing.id + "-api-key"}
                         value={editing.apiKey}
-                        onChange={(e) => setEditing({ ...editing, apiKey: e.target.value })}
+                        onChange={(e) => {
+                          clearTestResult(editing.id);
+                          setEditing({ ...editing, apiKey: e.target.value });
+                        }}
                         placeholder="API key"
                         className="w-full"
                       />

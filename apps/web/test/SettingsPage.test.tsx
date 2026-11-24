@@ -167,6 +167,46 @@ describe("SettingsPage", () => {
     expect(await screen.findByText(/Main Radarr: \+3 new/)).toBeInTheDocument();
   });
 
+  it("drops the connection result once the URL or key is edited", async () => {
+    // Saving a new URL/key without re-testing used to keep the green
+    // "OK: Radarr 5.2.6" line from the previous configuration, so the one
+    // screen where a wrong URL is entered claimed the connection works.
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Main Radarr");
+    await user.click(screen.getByRole("button", { name: "Test connection" }));
+    expect(await screen.findByText("OK: Radarr 5.2.6")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    const group = screen.getByRole("group", { name: "Edit Main Radarr" });
+    await user.clear(within(group).getByLabelText("URL"));
+    await user.type(within(group).getByLabelText("URL"), "http://127.0.0.1:9999");
+    await user.click(within(group).getByRole("button", { name: "Save" }));
+
+    expect(updateSourceMock).toHaveBeenCalledWith(1, {
+      name: "Main Radarr",
+      baseUrl: "http://127.0.0.1:9999",
+      apiKey: "\u2022\u2022\u2022\u20221234"
+    });
+    expect(screen.queryByText("OK: Radarr 5.2.6")).not.toBeInTheDocument();
+  });
+
+  it("drops the connection result when only the API key is edited", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Main Radarr");
+    await user.click(screen.getByRole("button", { name: "Test connection" }));
+    expect(await screen.findByText("OK: Radarr 5.2.6")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    const group = screen.getByRole("group", { name: "Edit Main Radarr" });
+    await user.clear(within(group).getByLabelText("API key"));
+    await user.type(within(group).getByLabelText("API key"), "a-new-key");
+    await user.click(within(group).getByRole("button", { name: "Save" }));
+
+    expect(screen.queryByText("OK: Radarr 5.2.6")).not.toBeInTheDocument();
+  });
+
   it("edits a source in place with labelled fields and saves it", async () => {
     const user = userEvent.setup();
     renderPage();
