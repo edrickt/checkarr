@@ -1,5 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
-import { DB_PATH, ensureDataDir } from "./config.js";
+import path from "node:path";
+import { DATA_DIR, DB_PATH, ensureDataDir } from "./config.js";
 
 export type DB = DatabaseSync;
 
@@ -77,6 +78,12 @@ const SCHEMA: string[] = [
 ];
 
 export function migrate(db: DB): void {
+  // A fresh database gets media-path confinement out of the box (see the
+  // media_roots seed below); an existing one keeps the historical unconfined
+  // behaviour until the operator lists their media roots.
+  const freshInstall =
+    db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'settings'").get() ===
+    undefined;
   for (const stmt of SCHEMA) db.exec(stmt);
   // Local broadcasting (bind 0.0.0.0 instead of loopback) is a per-install
   // setting: older DBs need the column added (no-op if already there).
@@ -90,6 +97,15 @@ export function migrate(db: DB): void {
   // fresh installs are seeded with the sample library (see migrate below).
   if (!settingsCols.some((c) => c.name === "media_roots")) {
     db.exec("ALTER TABLE settings ADD COLUMN media_roots TEXT NOT NULL DEFAULT '[]'");
+  }
+  // Confinement is on for new installs, and the sample library is the one root
+  // they need before the operator says where their media lives: it keeps the
+  // documented "Try it in 30 seconds" walkthrough working with an empty
+  // config. Upgraded databases keep '[]' (see the comment above).
+  if (freshInstall) {
+    db.prepare("UPDATE settings SET media_roots = ? WHERE id = 1").run(
+      JSON.stringify([path.join(DATA_DIR, "sample-media")])
+    );
   }
   // Per-library scans: scan_runs.source_id ships in the CREATE TABLE above for
   // fresh installs; older DBs need the column added (no-op if already there).

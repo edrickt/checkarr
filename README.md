@@ -44,7 +44,7 @@ Browsers can only decode a handful of codecs, so ffmpeg is the "player":
 | `corrupt`     | Container unparseable or a decode check failed                                                                           |
 | `suspect`     | Recoverable decode errors, unknown duration, or a timeout                                                                |
 | `missing`     | The \*arr references a file that no longer exists, or a monitored item with no file yet (not downloaded)                 |
-| `unreachable` | The file exists but is not readable (permissions)                                                                        |
+| `unreachable` | The file is not readable (permissions) or the path is outside the configured media roots                                 |
 | `purged`      | Deleted at the \*arr via Delete & re-search and waiting for its replacement; stays purged (never missing) until it lands |
 | `unchecked`   | Synced but not checked yet                                                                                               |
 
@@ -66,6 +66,8 @@ Then in the dashboard:
 1. Go to Settings, add `http://127.0.0.1:8699` and `http://127.0.0.1:8698` with key `checkarr-stub-key`, and use **Test connection** on each.
 2. On the Dashboard, hit **Sync library**, then open the **Scan library** menu and start a scan.
 3. You should get 2 healthy, 1 corrupt (truncated), 1 suspect (middle damage), 1 missing (ghost file).
+
+A fresh install already lists `data/sample-media` as a media root, so the sample library streams and checks without any further setup.
 
 ## Install
 
@@ -124,7 +126,7 @@ cd docker
 docker compose up -d --build
 ```
 
-The image runs the bundled static binaries and also installs system ffmpeg as a fallback, and stores data in the `checkarr-data` volume. Inside the container the server binds `0.0.0.0`, where the Host check is permissive by default; set `CHECKARR_ALLOWED_HOSTS` to the hostname/IP you publish the UI on to enforce it (DNS-rebinding protection). Mount your media into the container and add path mappings in Checkarr settings when the \*arr-reported paths differ from the container paths:
+The image runs the bundled static binaries and also installs system ffmpeg as a fallback, and stores data in the `checkarr-data` volume. Inside the container the server binds `0.0.0.0`, where the Host check is permissive by default; set `CHECKARR_ALLOWED_HOSTS` to the hostname/IP you publish the UI on to enforce it (DNS-rebinding protection). Mount your media into the container, list those mount points as media roots in Checkarr settings, and add path mappings when the \*arr-reported paths differ from the container paths:
 
 ```yaml
 # in docker/docker-compose.yml volumes:
@@ -139,6 +141,7 @@ Settings live in SQLite (`data/checkarr.db`, override the directory with `CHECKA
 
 - **Sources.** Radarr/Sonarr base URL + API key
 - **Path mappings.** Ordered prefix rewrites from \*arr paths to local paths
+- **Media roots.** Absolute local directories Checkarr may read media from. A resolved path outside every root is refused (403 when streaming, `unreachable` when checking), so a hostile or wrong `*arr` cannot turn Checkarr into an arbitrary-file reader. Paths are `realpath`-resolved, so a symlink inside a root cannot escape it. A fresh install starts with `data/sample-media` so the sample library works; an install upgraded from 1.1.x starts with an empty list (the historical behaviour - no confinement) so an existing library does not stop playing - add the directories that hold your movies and shows, then remove the sample root. Empty list = no confinement; `..` segments and relative paths are still refused.
 - **Concurrent checks.** 1–32 parallel ffmpeg workers (default 8)
 - **ffmpeg/ffprobe path overrides.** Use system binaries instead of the bundled ones
 - **Local broadcasting.** Bind `0.0.0.0` instead of loopback so other devices on your network can open the dashboard (no authentication, trusted networks only). Saves with the rest of the settings and takes effect on "Restart server". An explicit `HOST` environment variable overrides it.
@@ -154,7 +157,7 @@ Environment: `CHECKARR_PORT` (default 5656; 6767 belongs to Bazarr), `HOST` (def
 ```text
 GET    /api/stats                     counts by status and by source + last scan
 GET    /api/settings                  settings + resolved binaries
-PUT    /api/settings                  update settings (concurrency, paths, mappings)
+PUT    /api/settings                  update settings (concurrency, binaries, mappings, media roots)
 GET    /api/sources                   list sources
 POST   /api/sources                   { type, name, baseUrl, apiKey }
 PUT    /api/sources/:id               update source
@@ -199,7 +202,8 @@ docker        Dockerfile + compose file
 
 - The server binds to `127.0.0.1` by default and has **no authentication**. Do not expose it to the internet as-is. "Local broadcasting" opens it to the LAN. The API also answers `POST /api/restart`, so anyone on the network can bounce the listener.
 - Requests are checked against the `Host` header on the loopback default (defeating DNS-rebinding pages) and mutating requests must be same-origin JSON, so a drive-by web page cannot trigger scans or deletes. Local broadcasting accepts any hostname by default, because the UI is reached by whatever LAN address you use; set `CHECKARR_ALLOWED_HOSTS` to the hostname(s)/IP(s) you actually use and the check is enforced in that mode too.
-- API keys sit in the local database as plaintext.
+- API keys sit in the local database as plaintext, and \*arr requests never follow redirects: a `302` (an SSO proxy in front of the \*arr, a hostile proxy) fails the request instead of replaying `X-Api-Key` to another origin.
+- Media reads are confined: the path an \*arr reports is rewritten by your mappings, then resolved with `realpath` and required to sit inside a configured **media root** (see Configuration). Without a root the historical unconfined behaviour applies, which is why new installs get one by default.
 - Checkarr never modifies Radarr/Sonarr library metadata except through explicit actions: per-file and bulk Delete & re-search, and Re-search missing.
 - Every operation that touches the library syncs first: per-file operations (Re-check now, per-file Delete & re-search) sync that one item, and batch operations (scan, bulk delete) run the same library sync as the "Sync libraries" button. A 404 at the \*arr removes the row, a newly downloaded file is picked up right away, a malformed 2xx response fails the request instead of acting on an empty library, and a \*arr outage fails the request instead of acting on stale data.
 - A scan checks every file independently; killing the server mid-scan leaves remaining files unchecked, and the next scan (scope `unchecked`) picks them up.

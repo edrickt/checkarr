@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { applyPathMappings } from "../lib/paths.js";
+import { applyPathMappings, MediaPathError, resolveMediaPath } from "../lib/paths.js";
 import {
   classifyDecode,
   classifyProbe,
@@ -16,6 +16,9 @@ export type FileStatus = "unchecked" | "healthy" | "suspect" | "corrupt" | "miss
 export interface CheckContext {
   binaries: Binaries;
   mappings: PathMapping[];
+  /** Directories media may be read from; empty = unconfined (see
+   *  resolveMediaPath and README "Media roots"). */
+  mediaRoots?: string[];
   /** Decoder thread budget per ffmpeg process; keeps N workers inside the box's cores. */
   threads?: number;
   /** Aborted when the scan is cancelled: in-flight processes are killed and
@@ -35,10 +38,6 @@ export interface CheckOutcome {
 
 const TIMEOUTS = { probeMs: 30_000, segmentMs: 90_000 };
 const NL = String.fromCharCode(10);
-
-export function resolveLocalPath(originalPath: string, mappings: PathMapping[]): string {
-  return applyPathMappings(originalPath, mappings);
-}
 
 interface Step {
   name: string;
@@ -129,7 +128,28 @@ const RANK: Record<StepVerdict, number> = { pass: 0, suspect: 1, fail: 2 };
  */
 export async function checkMediaFile(originalPath: string, ctx: CheckContext): Promise<CheckOutcome> {
   throwIfCancelled(ctx);
-  const localPath = resolveLocalPath(originalPath, ctx.mappings);
+  // Confinement runs before stat/ffprobe/ffmpeg: a path outside the configured
+  // media roots is never touched, and a symlink planted inside a root cannot
+  // point the checker at a file outside it.
+  let localPath: string;
+  try {
+    localPath = await resolveMediaPath(originalPath, ctx.mappings, ctx.mediaRoots ?? []);
+  } catch (err) {
+    if (err instanceof MediaPathError) return { status: "unreachable", detail: err.message, probe: null };
+    const code = (err as NodeJS.ErrnoException)?.code;
+    if (code === "ENOENT") {
+      return {
+        status: "missing",
+        detail: "File not found: " + applyPathMappings(originalPath, ctx.mappings),
+        probe: null
+      };
+    }
+    return {
+      status: "unreachable",
+      detail: "Cannot access file: " + String((err as Error)?.message ?? err),
+      probe: null
+    };
+  }
 
   // 1. Accessibility
   try {

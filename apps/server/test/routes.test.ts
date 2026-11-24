@@ -88,6 +88,9 @@ beforeAll(async () => {
   db.exec("PRAGMA foreign_keys = ON;");
   migrate(db);
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "checkarr-routes-"));
+  // Media reads are confined to the configured roots; every fixture this suite
+  // streams lives in this temp dir, so it is the allowed root.
+  db.prepare("UPDATE settings SET media_roots = ? WHERE id = 1").run(JSON.stringify([dir]));
   const mediaPath = path.join(dir, "media.mp4");
   fs.writeFileSync(mediaPath, "0123456789abcdef");
   // More on-disk files: fixtures that "just downloaded" must not collide
@@ -315,6 +318,50 @@ describe("stream + Range", () => {
   it("validates file ids", async () => {
     const r = await app.inject({ method: "GET", url: "/api/files/abc/stream" });
     expect(r.statusCode).toBe(400);
+  });
+});
+
+describe("stream confinement", () => {
+  it("refuses to stream a file outside the configured media roots", async () => {
+    // A compromised/impersonated *arr (or a bad path mapping) must not turn
+    // the player endpoint into an unauthenticated arbitrary-file reader.
+    const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), "checkarr-outside-"));
+    const outside = path.join(elsewhere, "secret.txt");
+    fs.writeFileSync(outside, "not media");
+    const id = Number(
+      db
+        .prepare(
+          "INSERT INTO media_files (source_id, kind, external_id, title, path) VALUES (1, 'movie', '77', 'Outside', ?)"
+        )
+        .run(outside).lastInsertRowid
+    );
+    try {
+      const r = await app.inject({ method: "GET", url: "/api/files/" + id + "/stream" });
+      expect(r.statusCode).toBe(403);
+      expect(r.json().error).toMatch(/outside the configured media roots/);
+      expect(r.body).not.toContain("not media");
+    } finally {
+      db.prepare("DELETE FROM media_files WHERE id = ?").run(id);
+      fs.rmSync(elsewhere, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses a path that escapes through '..' after the mapping is applied", async () => {
+    const id = Number(
+      db
+        .prepare(
+          "INSERT INTO media_files (source_id, kind, external_id, title, path) VALUES (1, 'movie', '78', 'Escape', ?)"
+        )
+        // Not path.join: that would collapse the ".." before the route sees it.
+        .run(dir + "/../../etc/passwd").lastInsertRowid
+    );
+    try {
+      const r = await app.inject({ method: "GET", url: "/api/files/" + id + "/stream" });
+      expect(r.statusCode).toBe(400);
+      expect(r.json().error).toMatch(/absolute path without/);
+    } finally {
+      db.prepare("DELETE FROM media_files WHERE id = ?").run(id);
+    }
   });
 });
 

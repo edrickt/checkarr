@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DatabaseSync } from "node:sqlite";
+import path from "node:path";
+import { DATA_DIR } from "../src/config.js";
 import { migrate } from "../src/db.js";
 
 // A database created by an older install: scan_runs.scope is locked to
@@ -77,6 +79,24 @@ function makeOldDb(): DatabaseSync {
 }
 
 describe("migrate", () => {
+  it("seeds a media root for a fresh install (confinement on out of the box)", () => {
+    // The sample library lives in data/sample-media, so the documented
+    // zero-config walkthrough keeps working with media reads confined.
+    const db = new DatabaseSync(":memory:");
+    migrate(db);
+    const raw = (db.prepare("SELECT media_roots FROM settings WHERE id = 1").get() as any).media_roots;
+    expect(JSON.parse(raw)).toEqual([path.join(DATA_DIR, "sample-media")]);
+  });
+
+  it("leaves an upgraded install with no media roots (historical behaviour preserved)", () => {
+    // Grandfathering: an existing library may live anywhere, so an upgrade
+    // must not stop it playing. The README documents adding a root.
+    const db = makeOldDb();
+    migrate(db);
+    const raw = (db.prepare("SELECT media_roots FROM settings WHERE id = 1").get() as any).media_roots;
+    expect(JSON.parse(raw)).toEqual([]);
+  });
+
   it("widens the scan_runs.scope CHECK on old databases, preserving rows", () => {
     const db = makeOldDb();
     db.prepare(

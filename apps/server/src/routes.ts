@@ -4,7 +4,7 @@ import path from "node:path";
 import { ENV_HOST, isBroadcastHost, PORT } from "./config.js";
 import { getSettings, saveSettings, type AppSettings, type PathMapping } from "./settings.js";
 import { binariesUsable, resolveBinaries } from "./services/ffmpeg.js";
-import { checkMediaFile, resolveLocalPath, type CheckOutcome } from "./services/checker.js";
+import { checkMediaFile, type CheckOutcome } from "./services/checker.js";
 import { persistCheckOutcome, ScanManager, type ScanScope } from "./services/scanner.js";
 import {
   fetchArr,
@@ -18,6 +18,7 @@ import {
 import { purgeFiles } from "./services/purge.js";
 import { researchMissing, type ResearchStatus } from "./services/research.js";
 import { ApiError } from "./lib/api-error.js";
+import { MediaPathError, resolveMediaPath } from "./lib/paths.js";
 import type { DB } from "./db.js";
 
 interface SourceRow extends SourceCore {
@@ -864,7 +865,11 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager, se
         const binaries = resolveBinaries(settings);
         const problem = await binariesUsable(binaries);
         if (problem) throw new ApiError(400, problem);
-        outcome = await checkMediaFile(file.path, { binaries, mappings: settings.pathMappings });
+        outcome = await checkMediaFile(file.path, {
+          binaries,
+          mappings: settings.pathMappings,
+          mediaRoots: settings.mediaRoots
+        });
       }
       const verdict = persistCheckOutcome(db, file, outcome);
       if (verdict.wrote) return { id: file.id, status: verdict.status, detail: outcome.detail };
@@ -895,7 +900,21 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager, se
       { path: string | null } | undefined;
     if (!row) throw new ApiError(404, "file not found");
     if (row.path === null) throw new ApiError(404, "no file at the *arr for this item");
-    const localPath = resolveLocalPath(row.path, getSettings(db).pathMappings);
+    const settings = getSettings(db);
+    // The path is whatever the *arr reported, rewritten by the operator's
+    // mappings. Confine it to the configured media roots (realpath, so a
+    // symlink cannot escape) before anything is opened: this endpoint is
+    // unauthenticated, and a hostile *arr or a wrong mapping must not turn it
+    // into an arbitrary-file reader.
+    let localPath: string;
+    try {
+      localPath = await resolveMediaPath(row.path, settings.pathMappings, settings.mediaRoots);
+    } catch (err) {
+      if (err instanceof MediaPathError) {
+        throw new ApiError(err.code === "outside-media-roots" ? 403 : 400, err.message);
+      }
+      throw new ApiError(404, "file not accessible on disk: " + row.path);
+    }
     let size: number;
     try {
       const st = await fs.promises.stat(localPath);

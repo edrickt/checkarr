@@ -180,7 +180,7 @@ export class ScanManager {
 
     this.activeRunId = runId;
     this.cancelController = new AbortController();
-    void this.drive(runId, binaries, settings.pathMappings, settings.concurrency);
+    void this.drive(runId, binaries, settings.pathMappings, settings.mediaRoots, settings.concurrency);
     return runId;
   }
 
@@ -198,6 +198,7 @@ export class ScanManager {
     runId: number,
     binaries: Binaries,
     mappings: PathMapping[],
+    mediaRoots: string[],
     concurrency: number
   ): Promise<void> {
     try {
@@ -206,7 +207,13 @@ export class ScanManager {
       // equal the worker count no matter the hardware. The machine keeps its
       // headroom; raise concurrency if you want more decode throughput.
       const threads = 1;
-      const ctx: CheckContext = { binaries, mappings, threads, signal: this.cancelController?.signal };
+      const ctx: CheckContext = {
+        binaries,
+        mappings,
+        mediaRoots,
+        threads,
+        signal: this.cancelController?.signal
+      };
       const workers: Promise<void>[] = [];
       for (let i = 0; i < n; i++) workers.push(this.worker(runId, ctx));
       await Promise.all(workers);
