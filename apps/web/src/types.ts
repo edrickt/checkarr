@@ -57,6 +57,7 @@ export interface Settings {
   ffmpegPath: string | null;
   ffprobePath: string | null;
   pathMappings: PathMapping[];
+  mediaRoots: string[];
   localBroadcast: boolean;
 }
 

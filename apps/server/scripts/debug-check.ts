@@ -10,6 +10,7 @@ async function main(): Promise<void> {
     ffmpegPath: null,
     ffprobePath: null,
     pathMappings: [],
+    mediaRoots: [],
     localBroadcast: false
   });
   const problem = await binariesUsable(binaries);

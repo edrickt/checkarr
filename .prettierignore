@@ -4,3 +4,6 @@ data/
 coverage/
 pnpm-lock.yaml
 .git/
+# Preserved audit report (an input artifact of the remediation run, not repo
+# source): formatting it would rewrite the document's own tables and emphasis.
+docs/audits/2026-11-24-code-quality-audit.md

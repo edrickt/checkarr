@@ -318,6 +318,45 @@ describe("stream + Range", () => {
   });
 });
 
+describe("media roots setting", () => {
+  it("round-trips the media roots list", async () => {
+    const before = (await app.inject({ method: "GET", url: "/api/settings" })).json().settings.mediaRoots;
+    try {
+      const put = await app.inject({
+        method: "PUT",
+        url: "/api/settings",
+        payload: { mediaRoots: [dir, path.join(dir, "tv")] }
+      });
+      expect(put.statusCode).toBe(200);
+      expect(put.json().settings.mediaRoots).toEqual([dir, path.join(dir, "tv")]);
+      const read = (await app.inject({ method: "GET", url: "/api/settings" })).json();
+      expect(read.settings.mediaRoots).toEqual([dir, path.join(dir, "tv")]);
+    } finally {
+      await app.inject({ method: "PUT", url: "/api/settings", payload: { mediaRoots: before } });
+    }
+  });
+
+  it("rejects roots that are not absolute paths, and an empty list is valid", async () => {
+    const before = (await app.inject({ method: "GET", url: "/api/settings" })).json().settings.mediaRoots;
+    try {
+      for (const mediaRoots of ["nope", ["relative/dir"], [""], [123], null, [dir, 5]]) {
+        const r = await app.inject({ method: "PUT", url: "/api/settings", payload: { mediaRoots } });
+        expect(r.statusCode).toBe(400);
+      }
+      // An empty list is the documented "no confinement" state, not an error.
+      const cleared = await app.inject({
+        method: "PUT",
+        url: "/api/settings",
+        payload: { mediaRoots: [] }
+      });
+      expect(cleared.statusCode).toBe(200);
+      expect(cleared.json().settings.mediaRoots).toEqual([]);
+    } finally {
+      await app.inject({ method: "PUT", url: "/api/settings", payload: { mediaRoots: before } });
+    }
+  });
+});
+
 describe("validation", () => {
   it("rejects out-of-range concurrency", async () => {
     expect(

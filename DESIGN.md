@@ -225,7 +225,8 @@ Four sections, each `text-sm font-semibold` heading + one-line muted description
    binaries shown as a muted mono line that wraps.
 3. **Path mappings** — explanation line, rows of From/To inputs with labelled columns
    and Remove; Add mapping. Below `sm` the column header is replaced by a visible label
-   above each field.
+   above each field. Below the rows: Media roots, a multi-line input (one absolute path
+   per line, mono) with a help line, saved with the rest of the form.
 4. **Network & server** — local broadcasting row (toggle + explanation + HOST warning),
    current listen address, Restart server (default) with confirm. Save changes at the
    end of the form that owns it (checker settings), disabled until dirty.

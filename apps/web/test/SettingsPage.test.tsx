@@ -43,6 +43,7 @@ const settingsResponse = (overrides: Partial<SettingsResponse["server"]> = {}): 
     ffmpegPath: null,
     ffprobePath: null,
     pathMappings: [],
+    mediaRoots: [],
     localBroadcast: false
   },
   resolved: { ffmpeg: "/usr/bin/ffmpeg", ffprobe: "/usr/bin/ffprobe" },
@@ -272,6 +273,25 @@ describe("SettingsPage", () => {
     expect(screen.queryByLabelText("From path 1")).not.toBeInTheDocument();
   });
 
+  it("edits media roots one per line and saves them with the other settings", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Main Radarr");
+    const field = screen.getByLabelText("Media roots");
+    expect(field).toHaveValue("");
+
+    await user.type(field, "/media/movies{enter}/mnt/tv{enter}");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(saveSettingsMock).toHaveBeenCalledWith({
+      concurrency: 8,
+      ffmpegPath: null,
+      ffprobePath: null,
+      pathMappings: [],
+      mediaRoots: ["/media/movies", "/mnt/tv"],
+      localBroadcast: false
+    });
+  });
+
   it("saves checker, mapping and broadcasting changes together only when dirty", async () => {
     const user = userEvent.setup();
     renderPage();
@@ -290,6 +310,7 @@ describe("SettingsPage", () => {
       ffmpegPath: null,
       ffprobePath: null,
       pathMappings: [],
+      mediaRoots: [],
       localBroadcast: false
     });
     expect(await screen.findByText("Settings saved")).toBeInTheDocument();

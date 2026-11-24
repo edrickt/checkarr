@@ -116,6 +116,7 @@ describe("resolveBinaries", () => {
       ffmpegPath: "/custom/ffmpeg",
       ffprobePath: "/custom/ffprobe",
       pathMappings: [],
+      mediaRoots: [],
       localBroadcast: false
     });
     expect(binaries).toEqual({ ffmpeg: "/custom/ffmpeg", ffprobe: "/custom/ffprobe" });
@@ -132,6 +133,7 @@ describe("resolveBinaries", () => {
         ffmpegPath: null,
         ffprobePath: null,
         pathMappings: [],
+        mediaRoots: [],
         localBroadcast: false
       });
       expect(binaries.ffprobe).not.toContain("ffprobe-static");

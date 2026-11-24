@@ -39,6 +39,7 @@ describe.skipIf(!FF)("checker integration (real ffmpeg)", () => {
       ffmpegPath: null,
       ffprobePath: null,
       pathMappings: [],
+      mediaRoots: [],
       localBroadcast: false
     });
     const problem = await binariesUsable(binaries);

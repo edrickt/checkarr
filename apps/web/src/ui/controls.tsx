@@ -34,3 +34,13 @@ export function Select({
 }: Omit<ComponentProps<"select">, "size"> & { size?: ControlSize }) {
   return <select {...rest} className={controlClass(size, "pr-8 " + className)} />;
 }
+
+/** Multi-line input (one entry per line), same border/focus tokens as Input. */
+export function Textarea({ className = "", ...rest }: ComponentProps<"textarea">) {
+  return (
+    <textarea
+      {...rest}
+      className={BASE + " min-h-[5.5rem] resize-y px-3 py-2 text-base sm:text-xs " + className}
+    />
+  );
+}

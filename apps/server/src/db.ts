@@ -11,6 +11,7 @@ const SCHEMA: string[] = [
     " ffmpeg_path TEXT," +
     " ffprobe_path TEXT," +
     " path_mappings TEXT NOT NULL DEFAULT '[]'," +
+    " media_roots TEXT NOT NULL DEFAULT '[]'," +
     " local_broadcast INTEGER NOT NULL DEFAULT 0," +
     " updated_at TEXT NOT NULL DEFAULT (datetime('now')))",
   "INSERT OR IGNORE INTO settings (id) VALUES (1)",
@@ -82,6 +83,13 @@ export function migrate(db: DB): void {
   const settingsCols = db.prepare("PRAGMA table_info(settings)").all() as { name: string }[];
   if (!settingsCols.some((c) => c.name === "local_broadcast")) {
     db.exec("ALTER TABLE settings ADD COLUMN local_broadcast INTEGER NOT NULL DEFAULT 0");
+  }
+  // Media roots: the directories Checkarr is allowed to read media from.
+  // Installs upgraded from 1.1.x get the empty list, which keeps the previous
+  // unconfined behaviour so their library does not stop playing on upgrade;
+  // fresh installs are seeded with the sample library (see migrate below).
+  if (!settingsCols.some((c) => c.name === "media_roots")) {
+    db.exec("ALTER TABLE settings ADD COLUMN media_roots TEXT NOT NULL DEFAULT '[]'");
   }
   // Per-library scans: scan_runs.source_id ships in the CREATE TABLE above for
   // fresh installs; older DBs need the column added (no-op if already there).

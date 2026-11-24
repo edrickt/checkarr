@@ -5,7 +5,7 @@ import type { PathMapping, Source } from "../types";
 import { formatRelative } from "../utils";
 import { useScanState, useSettingsQuery, useSources } from "../hooks";
 import { Button } from "../ui/Button";
-import { Input, Select } from "../ui/controls";
+import { Input, Select, Textarea } from "../ui/controls";
 import { useConfirm } from "../ui/ConfirmDialog";
 import { ErrorBanner } from "../ui/ErrorBanner";
 import { Toggle } from "../ui/Toggle";
@@ -89,6 +89,7 @@ export default function SettingsPage() {
   const [ffmpegPath, setFfmpegPath] = useState("");
   const [ffprobePath, setFfprobePath] = useState("");
   const [mappings, setMappings] = useState<PathMapping[]>([]);
+  const [mediaRootsText, setMediaRootsText] = useState("");
   const [localBroadcast, setLocalBroadcast] = useState(false);
   const [form, setForm] = useState<SourceInput>(EMPTY_FORM);
   const [editing, setEditing] = useState<Source | null>(null);
@@ -100,9 +101,18 @@ export default function SettingsPage() {
       setFfmpegPath(settings.data.settings.ffmpegPath ?? "");
       setFfprobePath(settings.data.settings.ffprobePath ?? "");
       setMappings(settings.data.settings.pathMappings.map((m) => ({ ...m })));
+      setMediaRootsText(settings.data.settings.mediaRoots.join("\n"));
       setLocalBroadcast(settings.data.settings.localBroadcast);
     }
   }, [settings.data]);
+
+  // One media root per line: absolute local directories Checkarr may read
+  // media from. Blank lines are dropped, so an empty box is the documented
+  // "no confinement" state.
+  const mediaRoots = mediaRootsText
+    .split("\n")
+    .map((r) => r.trim())
+    .filter((r) => r.length > 0);
 
   // One form, one save: checker fields and path mappings save together, so
   // the button only lights up when the form actually differs from the server.
@@ -112,6 +122,7 @@ export default function SettingsPage() {
       ffmpegPath !== (settings.data.settings.ffmpegPath ?? "") ||
       ffprobePath !== (settings.data.settings.ffprobePath ?? "") ||
       JSON.stringify(mappings) !== JSON.stringify(settings.data.settings.pathMappings) ||
+      JSON.stringify(mediaRoots) !== JSON.stringify(settings.data.settings.mediaRoots) ||
       localBroadcast !== settings.data.settings.localBroadcast);
   // Client-side guards mirror the server's 400s so an empty number field or
   // an empty mapping row disables Save instead of round-tripping an error.
@@ -131,6 +142,7 @@ export default function SettingsPage() {
         ffmpegPath: ffmpegPath.trim() === "" ? null : ffmpegPath.trim(),
         ffprobePath: ffprobePath.trim() === "" ? null : ffprobePath.trim(),
         pathMappings: mappings,
+        mediaRoots,
         localBroadcast
       }),
     onSuccess: () => {
@@ -630,6 +642,22 @@ export default function SettingsPage() {
           >
             Add mapping
           </Button>
+          <div className="mt-6 max-w-xl">
+            <Field
+              id="settings-media-roots"
+              label="Media roots"
+              help="One absolute path per line. Checkarr only reads media inside these directories (after path mappings); a file reported outside them is refused when streaming or checking. Leave empty to allow any path (not recommended)."
+            >
+              <Textarea
+                id="settings-media-roots"
+                value={mediaRootsText}
+                onChange={(e) => setMediaRootsText(e.target.value)}
+                placeholder="/media/movies"
+                spellCheck={false}
+                className="w-full font-mono"
+              />
+            </Field>
+          </div>
         </Section>
 
         <Section

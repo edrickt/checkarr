@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import fs from "node:fs";
+import path from "node:path";
 import { ENV_HOST, isBroadcastHost, PORT } from "./config.js";
 import { getSettings, saveSettings, type AppSettings, type PathMapping } from "./settings.js";
 import { binariesUsable, resolveBinaries } from "./services/ffmpeg.js";
@@ -332,6 +333,25 @@ export function registerApi(app: FastifyInstance, db: DB, scans: ScanManager, se
         mappings.push({ match: m.match, replace: m.replace });
       }
       patch.pathMappings = mappings;
+    }
+    if (body.mediaRoots !== undefined) {
+      // Media roots confine which files Checkarr may read. They must be
+      // absolute local paths (a relative root would mean "relative to the
+      // server's cwd", which is not something an operator can reason about).
+      if (!Array.isArray(body.mediaRoots)) throw new ApiError(400, "mediaRoots must be an array");
+      if (body.mediaRoots.length > 20) throw new ApiError(400, "too many media roots (max 20)");
+      const roots: string[] = [];
+      for (const raw of body.mediaRoots) {
+        if (typeof raw !== "string" || raw.trim().length === 0) {
+          throw new ApiError(400, "each media root must be a non-empty path");
+        }
+        const root = raw.trim();
+        if (!path.isAbsolute(root)) {
+          throw new ApiError(400, "media roots must be absolute paths: " + root);
+        }
+        roots.push(root);
+      }
+      patch.mediaRoots = roots;
     }
     if (body.localBroadcast !== undefined) {
       if (typeof body.localBroadcast !== "boolean")
