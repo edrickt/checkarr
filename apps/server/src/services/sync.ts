@@ -93,6 +93,12 @@ export async function fetchArr(
         ...(init?.body !== undefined ? { "Content-Type": "application/json" } : {})
       },
       body: init?.body !== undefined ? JSON.stringify(init.body) : undefined,
+      // Never follow a redirect: undici strips Authorization on a cross-origin
+      // hop but replays custom headers, so `X-Api-Key` would be handed to
+      // whatever host the *arr (or a proxy in front of it) points at, and the
+      // redirected response would be read as the *arr's own data. A real *arr
+      // never redirects an API path, so this is always an error, never data.
+      redirect: "manual",
       signal: AbortSignal.timeout(20_000)
     });
     // Radarr/Sonarr delete endpoints answer with an empty body; consume as
@@ -100,6 +106,21 @@ export async function fetchArr(
     text = await res.text();
   } catch (err) {
     throw new Error("Cannot reach " + root + " : " + String((err as Error)?.message ?? err), { cause: err });
+  }
+  // A 3xx is not followed above, so it surfaces here with the response body
+  // discarded and the key still unsent. Name the target: an SSO proxy in front
+  // of the *arr is the usual cause.
+  if (res.status >= 300 && res.status < 400) {
+    const location = res.headers.get("location");
+    throw new Error(
+      method +
+        " " +
+        apiPath +
+        " was redirected (HTTP " +
+        res.status +
+        (location ? " to " + location : "") +
+        ") - redirects are not followed so the API key is never sent to another origin"
+    );
   }
   if (res.status === 401) throw new Error("Unauthorized (401) - check the API key");
   if (res.status === 404 && init?.notFoundOk) return undefined;

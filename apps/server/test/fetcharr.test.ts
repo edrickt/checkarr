@@ -99,6 +99,45 @@ describe("fetchArr body handling", () => {
     await expect(fetchArr("http://127.0.0.1:9", "k", "/api/v3/movie")).rejects.toThrow(/Cannot reach/);
   });
 
+  describe("cross-origin redirects", () => {
+    it("does not follow a redirect, so the API key never reaches the target origin", async () => {
+      // A *arr behind an SSO/reverse proxy answers an expired session with a
+      // 302 to the identity provider. Following it replays X-Api-Key to that
+      // third party (undici strips Authorization on a cross-origin hop, not
+      // custom headers), and the JSON the target answers is read as the
+      // *arr's own data.
+      const received: { url: string; key: string | undefined }[] = [];
+      const target = createServer((req, res) => {
+        received.push({ url: req.url ?? "", key: req.headers["x-api-key"] as string | undefined });
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ appName: "Radarr", version: "5.14.0-internal" }));
+      });
+      await new Promise<void>((resolve) => target.listen(0, "127.0.0.1", resolve));
+      const targetUrl = "http://127.0.0.1:" + (target.address() as { port: number }).port;
+      const redirector = createServer((_req, res) => {
+        res.writeHead(302, { location: targetUrl + "/latest/meta-data/" }).end();
+      });
+      await new Promise<void>((resolve) => redirector.listen(0, "127.0.0.1", resolve));
+      const redirectorUrl = "http://127.0.0.1:" + (redirector.address() as { port: number }).port;
+      try {
+        await expect(fetchArr(redirectorUrl, "SECRET-KEY", "/api/v3/system/status")).rejects.toThrow(
+          /redirect/i
+        );
+        expect(received).toEqual([]);
+
+        // A redirect must fail the connection test, not pass it with the
+        // redirect target's appName/version.
+        const tested = await testSource("radarr", redirectorUrl, "SECRET-KEY");
+        expect(tested.ok).toBe(false);
+        expect(tested.error).toMatch(/redirect/i);
+        expect(received).toEqual([]);
+      } finally {
+        await new Promise<void>((resolve) => redirector.close(() => resolve()));
+        await new Promise<void>((resolve) => target.close(() => resolve()));
+      }
+    });
+  });
+
   describe("testSource", () => {
     it("reports a working *arr with its app name and version", async () => {
       expect(await testSource("radarr", url, "k")).toEqual({
